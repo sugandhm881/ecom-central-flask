@@ -42,7 +42,7 @@ def get_adset_performance_data(since, until, config):
     if not os.path.exists(MASTER_DATA_FILE):
         raise FileNotFoundError("Master data file not found. Please run data_fetcher.py first.")
     
-    with open(MASTER_DATA_FILE, 'r') as f:
+    with open(MASTER_DATA_FILE, 'r', encoding='utf-8') as f:  
         all_orders = json.load(f)
     
     shopify_orders_in_range = [o for o in all_orders if start_date <= datetime.fromisoformat(o['created_at']).date() <= end_date]

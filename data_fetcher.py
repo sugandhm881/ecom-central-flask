@@ -104,9 +104,9 @@ def run_data_sync():
         save_cache(status_cache)
         print("✓ Cache saved\n")
 
-        # Save to master file
-        print(f"Step 7: Writing to '{MASTER_DATA_FILE}'...")
-        with open(MASTER_DATA_FILE, 'w') as f:
+        # Save to master file with UTF-8 encoding  
+        print(f"Step 7: Writing to '{MASTER_DATA_FILE}'...")  
+        with open(MASTER_DATA_FILE, 'w', encoding='utf-8') as f:  
             json.dump(all_recent_orders, f, ensure_ascii=False, indent=2)
         print(f"✓ Saved {len(all_recent_orders)} orders\n")
 
