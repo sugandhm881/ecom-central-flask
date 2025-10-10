@@ -1,5 +1,6 @@
 import json
 import os
+import tempfile
 from datetime import datetime, timedelta
 import pytz
 from app import create_app
@@ -15,6 +16,36 @@ from app.api.helpers import (
 
 MASTER_DATA_FILE = 'master_order_data.json'
 TZ_INDIA = pytz.timezone('Asia/Kolkata')
+
+def atomic_write_json_utf8(path, data):
+    """
+    Atomically write JSON data to a file with UTF-8 encoding.
+    Validates the file after writing to ensure it's readable.
+    """
+    dir_ = os.path.dirname(path) or '.'
+    fd, tmp_path = tempfile.mkstemp(dir=dir_, prefix='.tmp_', suffix='.json')
+    try:
+        # Write UTF-8
+        with os.fdopen(fd, 'w', encoding='utf-8', newline='\n') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        
+        # Validate read-back as UTF-8
+        with open(tmp_path, 'r', encoding='utf-8') as v:
+            json.load(v)
+        
+        # Atomically replace the original file
+        os.replace(tmp_path, path)
+        print(f"✓ File validated and saved successfully")
+    except Exception as e:
+        print(f"✗ Error during atomic write: {e}")
+        raise
+    finally:
+        # Clean up temp file if it still exists
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except:
+                pass
 
 def run_data_sync():
     print(f"\n{'='*70}")
@@ -104,10 +135,9 @@ def run_data_sync():
         save_cache(status_cache)
         print("✓ Cache saved\n")
 
-        # Save to master file with UTF-8 encoding  
-        print(f"Step 7: Writing to '{MASTER_DATA_FILE}'...")  
-        with open(MASTER_DATA_FILE, 'w', encoding='utf-8') as f:  
-            json.dump(all_recent_orders, f, ensure_ascii=False, indent=2)
+        # Save to master file with atomic UTF-8 write
+        print(f"Step 7: Writing to '{MASTER_DATA_FILE}'...")
+        atomic_write_json_utf8(MASTER_DATA_FILE, all_recent_orders)
         print(f"✓ Saved {len(all_recent_orders)} orders\n")
 
         print(f"{'='*70}")

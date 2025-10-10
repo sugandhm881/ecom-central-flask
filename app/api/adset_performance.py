@@ -16,6 +16,21 @@ from .helpers import get_all_shopify_orders_paginated, get_facebook_ads, get_ord
 adset_performance_bp = Blueprint('adset_performance', __name__)
 MASTER_DATA_FILE = 'master_order_data.json'
 
+def load_master_orders_utf8_safe(path):
+    """
+    Safely load the master orders JSON file with UTF-8 encoding.
+    Falls back to error-tolerant mode if the file contains invalid UTF-8 bytes.
+    """
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except UnicodeDecodeError as e:
+        # Fallback: tolerate bad bytes to keep the API alive
+        print(f"[WARN] UTF-8 decode failed for {path} at position {e.start}: {e.reason}")
+        print("[WARN] Retrying with errors='replace'. Consider regenerating the file by running data_fetcher.py")
+        with open(path, 'r', encoding='utf-8', errors='replace') as f:
+            return json.load(f)
+
 def create_empty_bucket(bucket_id, name, spend=0):
     return {'id': bucket_id, 'name': name, 'spend': spend, 'totalOrders': 0, 'revenue': 0, 'deliveredOrders': 0, 'rtoOrders': 0, 'cancelledOrders': 0, 'inTransitOrders': 0, 'processingOrders': 0, 'exceptionOrders': 0, 'terms': {}}
 
@@ -42,8 +57,8 @@ def get_adset_performance_data(since, until, config):
     if not os.path.exists(MASTER_DATA_FILE):
         raise FileNotFoundError("Master data file not found. Please run data_fetcher.py first.")
     
-    with open(MASTER_DATA_FILE, 'r', encoding='utf-8') as f:  
-        all_orders = json.load(f)
+    # Use safe UTF-8 loader with fallback
+    all_orders = load_master_orders_utf8_safe(MASTER_DATA_FILE)
     
     shopify_orders_in_range = [o for o in all_orders if start_date <= datetime.fromisoformat(o['created_at']).date() <= end_date]
     print(f"Filtered to {len(shopify_orders_in_range)} orders created in range.")
@@ -105,4 +120,4 @@ def get_adset_performance_route():
         return jsonify(data)
     except Exception as e:
         print(f"--- [CRITICAL Adset Performance ERROR] ---"); traceback.print_exc()
-        return jsonify({"error": f"An internal server error occurred: {e}"}), 500
+        return jsonify({"error": f"An internal server error occurred: {str(e)}"}), 500
