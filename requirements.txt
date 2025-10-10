@@ -5,3 +5,4 @@ PyJWT
 fpdf2
 openpyxl
 pytz
+gunicorn
