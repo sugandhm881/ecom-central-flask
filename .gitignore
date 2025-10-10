@@ -12,6 +12,7 @@ __pycache__/
 master_order_data.json
 rapidshyp_cache.json
 task_log.txt
+amazon_cache.json
 
 # VSCode settings
 .vscode/
