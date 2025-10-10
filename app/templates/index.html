@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ecom Central</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #f1f5f9; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+.sidebar-link { transition: all 0.2s ease; }
+.sidebar-link.active, .sidebar-link:hover { background-color: #4338ca; color: white; }
+.filter-btn { transition: all 0.2s ease; }
+.filter-btn.active { background-color: #eef2ff; color: #4338ca; font-weight: 600; }
+.order-row:hover { background-color: #f8fafc; }
+#notification { transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; transform: translateY(-150%); opacity: 0; }
+#notification.show { transform: translateY(0); opacity: 1; }
+.view-hidden { display: none; }
+.modal-backdrop { transition: opacity 0.3s ease-in-out; }
+.modal-panel { transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; }
+.modal-hidden { opacity: 0; pointer-events: none; }
+.modal-hidden .modal-panel { transform: scale(0.95); opacity: 0; }
+.modal-visible { opacity: 1; pointer-events: auto; }
+.modal-visible .modal-panel { transform: scale(1); opacity: 1; }
+.filter-select {
+    -webkit-appearance: none; -moz-appearance: none; appearance: none;
+    background-image: url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C/polyline%3E%3C/svg%3E');
+    background-repeat: no-repeat; background-position: right 0.5rem center; background-size: 1.2em 1.2em; padding-right: 2.5rem;
+}
+.status-transit { background-color: #fff3cd; color: #856404; font-weight: bold; }
+.status-processing { background-color: #d1ecf1; color: #0c5460; font-weight: bold; }
+</style>
+</head>
+<body class="text-slate-800">
+
+<div id="notification" class="fixed top-5 right-5 z-50 bg-slate-900 text-white py-3 px-5 rounded-lg shadow-xl">
+<p id="notification-message">Notification</p>
+</div>
+
+<div id="login-view" class="flex items-center justify-center h-screen bg-slate-100">
+    <div class="text-center p-8 bg-white rounded-lg shadow-md w-full max-w-sm">
+        <img src="{{ url_for('static', filename='assets/ecom-logo.png') }}" alt="Ecom Central Logo" class="w-16 h-16 rounded-xl mx-auto mb-4">
+        <h1 class="text-3xl font-bold text-slate-800">Ecom Central</h1>
+        <p class="text-slate-500 mb-6">Your Unified Seller Dashboard</p>
+        <div class="space-y-4">
+            <input type="email" id="login-email" placeholder="Email" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+            <input type="password" id="login-password" placeholder="Password" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+            <button id="login-btn" class="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition-colors">Login</button>
+        </div>
+    </div>
+</div>
+
+<div id="app" class="flex h-screen" style="display: none;">
+<aside class="w-20 lg:w-64 bg-slate-900 text-slate-300 flex flex-col transition-all duration-300">
+<div class="p-4 border-b border-slate-700 flex items-center justify-center lg:justify-start">
+<img src="{{ url_for('static', filename='assets/ecom-logo.png') }}" alt="Ecom Central Logo" class="w-9 h-9 rounded-lg">
+<h1 class="text-xl font-bold text-white ml-3 hidden lg:block">Ecom Central</h1>
+</div>
+<nav class="flex-1 p-2 lg:p-4 space-y-2">
+<a href="#" id="nav-orders-dashboard" class="sidebar-link active flex items-center p-3 lg:px-4 rounded-lg">
+<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7"></path></svg>
+<span class="ml-4 font-medium hidden lg:block">Orders Dashboard</span>
+</a>
+<a href="#" id="nav-order-insights" class="sidebar-link flex items-center p-3 lg:px-4 rounded-lg">
+<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18"></path></svg>
+<span class="ml-4 font-medium hidden lg:block">Order Insights</span>
+</a>
+<a href="#" id="nav-ad-performance" class="sidebar-link flex items-center p-3 lg:px-4 rounded-lg">
+<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 8v8m-8-8v8m-4-4h16"></path></svg>
+<span class="ml-4 font-medium hidden lg:block">Ad Performance</span>
+</a>
+<a href="#" id="nav-adset-breakdown" class="sidebar-link flex items-center p-3 lg:px-4 rounded-lg">
+<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+<span class="ml-4 font-medium hidden lg:block">Ad Set Breakdown</span>
+</a>
+<a href="#" id="nav-settings" class="sidebar-link flex items-center p-3 lg:px-4 rounded-lg">
+<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0 3.35a1.724 1.724 0 001.066 2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+<span class="ml-4 font-medium hidden lg:block">Settings</span>
+</a>
+</nav>
+<div class="p-2 lg:p-4 mt-auto">
+<button id="logout-btn" class="w-full text-center bg-red-600 hover:bg-red-700 text-white font-semibold py-2 rounded-lg transition-colors flex items-center justify-center gap-2">
+    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+    <span class="hidden lg:block">Logout</span>
+</button>
+</div>
+</aside>
+
+<main class="flex-1 flex flex-col overflow-y-auto">
+
+<div id="orders-dashboard-view">
+<header class="bg-white/60 backdrop-blur-sm p-4 border-b border-slate-200 sticky top-0 z-20"><h1 class="text-2xl font-bold text-slate-900">Orders Dashboard</h1></header>
+<div class="flex-1 p-4 lg:p-6">
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+<div id="kpi-dashboard-new" class="bg-white p-4 rounded-xl shadow-sm"></div>
+<div id="kpi-dashboard-processing" class="bg-white p-4 rounded-xl shadow-sm"></div>
+<div id="kpi-dashboard-shipped" class="bg-white p-4 rounded-xl shadow-sm"></div>
+<div id="kpi-dashboard-cancelled" class="bg-white p-4 rounded-xl shadow-sm"></div>
+</div>
+<div class="bg-white p-6 rounded-xl shadow-sm">
+<div class="flex flex-col sm:flex-row items-center justify-between mb-4 gap-4">
+<h2 class="text-xl font-semibold">Orders</h2>
+<div class="flex items-center gap-2 flex-wrap">
+<select id="status-filter" class="filter-select text-sm bg-white border border-slate-300 rounded-lg px-3 py-1.5"></select>
+<select id="order-date-preset-filter" class="filter-select text-sm bg-white border border-slate-300 rounded-lg px-3 py-1.5"></select>
+<div id="custom-date-container" class="hidden items-center gap-2">
+<input type="date" id="start-date-filter" class="bg-slate-100 p-1.5 rounded-lg text-sm">
+<input type="date" id="end-date-filter" class="bg-slate-100 p-1.5 rounded-lg text-sm">
+</div>
+<div id="platform-filters" class="flex items-center gap-1 bg-slate-100 p-1 rounded-lg"></div>
+</div>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left">
+<thead>
+<tr class="border-b border-slate-200 text-sm text-slate-500">
+<th class="py-3 px-4">Platform</th>
+<th class="py-3 px-4">Date</th>
+<th class="py-3 px-4">Order ID</th>
+<th class="py-3 px-4">Customer</th>
+<th class="py-3 px-4">Total</th>
+<th class="py-3 px-4">Status</th>
+</tr>
+</thead>
+<tbody id="orders-list"></tbody>
+</table>
+</div>
+</div>
+</div>
+</div>
+
+<div id="order-insights-view" class="view-hidden">
+<header class="bg-white/60 backdrop-blur-sm p-4 border-b border-slate-200 sticky top-0 z-20">
+<div class="flex items-center justify-between">
+<h1 class="text-2xl font-bold text-slate-900">Order Insights</h1>
+<div class="flex items-center gap-2 flex-wrap">
+<div id="insights-platform-filters" class="flex items-center gap-1 bg-slate-100 p-1 rounded-lg"></div>
+<select id="insights-date-preset-filter" class="filter-select text-sm bg-white border border-slate-300 rounded-lg px-3 py-1.5"></select>
+<div id="insights-custom-date-container" class="hidden items-center gap-2"><input type="date" id="insights-start-date-filter" class="bg-slate-100 p-1.5 rounded-lg text-sm"><input type="date" id="insights-end-date-filter" class="bg-slate-100 p-1.5 rounded-lg text-sm"></div>
+</div>
+</div>
+</header>
+<div class="flex-1 p-4 lg:p-6">
+<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-4 mb-6">
+<div id="kpi-insights-revenue" class="bg-white p-4 rounded-xl shadow-sm"></div>
+<div id="kpi-insights-avg-value" class="bg-white p-4 rounded-xl shadow-sm"></div>
+<div id="kpi-insights-all-orders" class="bg-white p-4 rounded-xl shadow-sm"></div>
+<div id="kpi-insights-new" class="bg-white p-4 rounded-xl shadow-sm"></div>
+<div id="kpi-insights-shipped" class="bg-white p-4 rounded-xl shadow-sm"></div>
+<div id="kpi-insights-rto" class="bg-white p-4 rounded-xl shadow-sm"></div>
+<div id="kpi-insights-cancelled" class="bg-white p-4 rounded-xl shadow-sm"></div>
+</div>
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+<div class="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm">
+<div class="relative h-96">
+<canvas id="revenue-chart"></canvas>
+</div>
+</div>
+<div class="flex flex-col gap-6">
+<div class="bg-white p-6 rounded-xl shadow-sm flex-1"><div class="relative h-full w-full"><canvas id="platform-chart"></canvas></div></div>
+<div class="bg-white p-6 rounded-xl shadow-sm flex-1"><div class="relative h-full w-full"><canvas id="payment-chart"></canvas></div></div>
+</div>
+</div>
+</div>
+</div>
+
+<div id="ad-performance-view" class="view-hidden">
+<header class="bg-white/60 backdrop-blur-sm p-4 border-b border-slate-200 sticky top-0 z-20 flex justify-between items-center">
+<h1 class="text-2xl font-bold text-slate-900">Ad Performance</h1>
+<div class="flex items-center gap-2 flex-wrap">
+<select id="ad-date-preset-filter" class="filter-select text-sm bg-white border border-slate-300 rounded-lg px-3 py-1.5"></select>
+<div id="ad-custom-date-container" class="hidden items-center gap-2"><input type="date" id="ad-start-date-filter" class="bg-slate-100 p-1.5 rounded-lg text-sm"><input type="date" id="ad-end-date-filter" class="bg-slate-100 p-1.5 rounded-lg text-sm"></div>
+</div>
+</header>
+<div class="flex-1 p-4 lg:p-6 space-y-6">
+<div class="grid grid-cols-2 lg:grid-cols-6 gap-4">
+<div id="kpi-total-spend" class="bg-white p-4 rounded-xl shadow-sm"></div>
+<div id="kpi-total-revenue" class="bg-white p-4 rounded-xl shadow-sm"></div>
+<div id="kpi-roas" class="bg-white p-4 rounded-xl shadow-sm"></div>
+<div id="kpi-delivered" class="bg-white p-4 rounded-xl shadow-sm"></div>
+<div id="kpi-rto" class="bg-white p-4 rounded-xl shadow-sm"></div>
+<div id="kpi-cancelled" class="bg-white p-4 rounded-xl shadow-sm"></div>
+</div>
+<div class="bg-white p-6 rounded-xl shadow-sm">
+<h2 class="text-xl font-semibold mb-4">Daily Performance Breakdown</h2>
+<div class="overflow-x-auto">
+<table class="w-full text-left">
+<thead>
+<tr class="border-b border-slate-200 text-sm text-slate-500">
+<th class="py-3 px-4">Date</th>
+<th class="py-3 px-4 text-right">Ad Spend</th>
+<th class="py-3 px-4 text-right">Orders</th>
+<th class="py-3 px-4 text-right">Revenue</th>
+<th class="py-3 px-4 text-right">CPO</th>
+<th class="py-3 px-4 text-right">ROAS</th>
+<th class="py-3 px-4 text-right">Delivered</th>
+<th class="py-3 px-4 text-right">RTO</th>
+<th class="py-3 px-4 text-right">Cancelled</th>
+<th class="py-3 px-4 text-right">In-Transit</th>
+<th class="py-3 px-4 text-right">Processing</th>
+<th class="py-3 px-4 text-right">RTO %</th>
+</tr>
+</thead>
+<tbody id="performance-table-body"></tbody>
+</table>
+</div>
+</div>
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+<div class="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm">
+<div class="relative h-96">
+<canvas id="spend-revenue-chart"></canvas>
+</div>
+</div>
+<div class="bg-white p-6 rounded-xl shadow-sm">
+<div class="relative h-full w-full"><canvas id="order-status-chart"></canvas></div>
+</div>
+</div>
+</div>
+</div>
+
+<div id="adset-breakdown-view" class="view-hidden">
+<header class="bg-white/60 backdrop-blur-sm p-4 border-b border-slate-200 sticky top-0 z-20 flex justify-between items-center">
+    <h1 class="text-2xl font-bold text-slate-900">Ad Set Breakdown</h1>
+    <div class="flex items-center gap-2 flex-wrap">
+        
+        <div class="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
+            <label for="adset-date-filter-type" class="text-sm font-medium text-slate-600 pl-2">Filter By:</label>
+            <select id="adset-date-filter-type" class="filter-select text-sm bg-white border-none rounded-md px-3 py-1">
+                <option value="created_at" selected>Shopify Order Date</option>
+                <option value="updated_at">RapidShyp Shipment Date</option>
+            </select>
+        </div>
+        <select id="adset-date-preset-filter" class="filter-select text-sm bg-white border border-slate-300 rounded-lg px-3 py-1.5"></select>
+        <div id="adset-custom-date-container" class="hidden items-center gap-2">
+            <input type="date" id="adset-start-date-filter" class="bg-slate-100 p-1.5 rounded-lg text-sm">
+            <input type="date" id="adset-end-date-filter" class="bg-slate-100 p-1.5 rounded-lg text-sm">
+        </div>
+        
+        <button id="download-adset-excel" class="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 rounded-lg shadow-md transition-all">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+            Download Excel
+        </button>
+        <button id="download-adset-pdf" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2 rounded-lg shadow-md transition-all">
+            <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 12v8m0 0l-4-4m4 4l4-4M12 4v8" />
+            </svg>
+            Download PDF
+        </button>
+    </div>
+</header>
+<div class="flex-1 p-4 lg:p-6">
+<div class="bg-white p-6 rounded-xl shadow-sm">
+<h2 class="text-xl font-semibold mb-4">Performance by Ad Set</h2>
+<div class="overflow-x-auto">
+<table class="w-full text-left">
+<thead>
+<tr class="border-b border-slate-200 text-sm text-slate-500 text-right">
+    <th class="text-left w-1/3">Ad Set / Source</th>
+    <th class="text-left">Sub-Terms</th>
+    <th>Spend (₹)</th>
+    <th>Total Orders</th>
+    <th>Delivered</th>
+    <th>RTO</th>
+    <th>Cancelled</th>
+    <th>In-Transit</th>
+    <th>Processing</th>
+    <th>RTO %</th>
+    <th>CPO (₹)</th>
+    <th>ROAS</th>
+</tr>
+</thead>
+<tbody id="adset-performance-table-body"></tbody>
+</table>
+</div>
+</div>
+</div>
+</div>
+
+<div id="settings-view" class="view-hidden">
+<header class="bg-white/60 backdrop-blur-sm p-4 border-b border-slate-200 sticky top-0 z-20">
+<h1 class="text-2xl font-bold text-slate-900">Settings</h1>
+</header>
+<div class="p-4 lg:p-6">
+<div class="max-w-2xl mx-auto">
+<h2 class="text-xl font-semibold mb-4">Manage Seller Accounts</h2>
+<div id="seller-connections" class="space-y-4"></div>
+</div>
+</div>
+</div>
+
+</main>
+</div>
+
+<div id="order-modal" class="modal-hidden fixed inset-0 z-40 flex items-center justify-center">
+<div id="modal-backdrop" class="modal-backdrop fixed inset-0 bg-black/30"></div>
+<div id="modal-panel" class="modal-panel relative bg-slate-50 rounded-xl shadow-lg w-full max-w-lg m-4 max-h-[90vh] overflow-y-auto">
+<div class="p-6" id="modal-content"></div>
+<button id="modal-close-btn" class="absolute top-3 right-3 p-2 rounded-full hover:bg-slate-200">
+<svg class="w-6 h-6 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+</button>
+</div>
+</div>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
