@@ -9,7 +9,6 @@ __pycache__/
 *.pyc
 
 # Local data and log files
-master_order_data.json
 rapidshyp_cache.json
 task_log.txt
 amazon_cache.json
