@@ -147,15 +147,23 @@ def download_dashboard_pdf():
         pdf.create_summary(adset_data, since, until)
         pdf.create_table(adset_data)
         
-        # Fix: pdf.output() returns bytes directly in fpdf2 >= 2.7
-        pdf_output_bytes = pdf.output()
+        # Get PDF output and ensure it's bytes (not bytearray or str)
+        pdf_output = pdf.output()
         
-        # Fallback for older fpdf2 versions
-        if isinstance(pdf_output_bytes, str):
-            pdf_output_bytes = pdf_output_bytes.encode('latin-1')
+        # Convert to bytes if it's a bytearray or string
+        if isinstance(pdf_output, bytearray):
+            pdf_output_bytes = bytes(pdf_output)
+        elif isinstance(pdf_output, str):
+            pdf_output_bytes = pdf_output.encode('latin-1')
+        else:
+            pdf_output_bytes = pdf_output
+        
+        # Wrap in BytesIO for Flask compatibility
+        pdf_buffer = io.BytesIO(pdf_output_bytes)
+        pdf_buffer.seek(0)
         
         return Response(
-            pdf_output_bytes,
+            pdf_buffer.getvalue(),
             mimetype='application/pdf',
             headers={'Content-Disposition': f'attachment;filename=adset_report_{since}_to_{until}.pdf'}
         )
