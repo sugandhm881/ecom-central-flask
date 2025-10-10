@@ -12,6 +12,20 @@ import json
 excel_report_bp = Blueprint('excel_report', __name__)
 MASTER_DATA_FILE = 'master_order_data.json'
 
+def load_master_orders_utf8_safe(path):
+    """
+    Safely load the master orders JSON file with UTF-8 encoding.
+    Falls back to error-tolerant mode if the file contains invalid UTF-8 bytes.
+    """
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except UnicodeDecodeError as e:
+        print(f"[WARN] UTF-8 decode failed for {path} at position {e.start}: {e.reason}")
+        print("[WARN] Retrying with errors='replace'. Consider regenerating the file by running data_fetcher.py")
+        with open(path, 'r', encoding='utf-8', errors='replace') as f:
+            return json.load(f)
+
 @excel_report_bp.route('/download-excel-report', methods=['GET'])
 @token_required
 def download_excel_report():
@@ -27,8 +41,8 @@ def download_excel_report():
         if not os.path.exists(MASTER_DATA_FILE):
             return "Master data file not found. Please run data_fetcher.py first.", 500
         
-        with open(MASTER_DATA_FILE, 'r') as f:
-            all_orders = json.load(f)
+        # Use safe UTF-8 loader with fallback
+        all_orders = load_master_orders_utf8_safe(MASTER_DATA_FILE)
 
         shopify_orders_in_range = []
         for o in all_orders:
