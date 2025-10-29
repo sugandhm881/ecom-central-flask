@@ -1,17 +1,14 @@
-# Environment variables (contains secret keys)
-.env
-
-# Python virtual environment
 venv/
-
-# Python cache files
 __pycache__/
 *.pyc
-
-# Local data and log files
+*.tmp
+*.log
+*.cache
+.env
+# Add any other specific files you don't want to upload
+amazon_orders_cache.json
+amazon_items_cache.json
 rapidshyp_cache.json
-task_log.txt
-amazon_cache.json
-
-# VSCode settings
-.vscode/
+master_order_data.json # Be careful: Upload this manually if needed, or fetch it on the server
+*.xlsx # Don't upload generated reports
+*.pdf # Don't upload generated reports
