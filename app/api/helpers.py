@@ -13,6 +13,9 @@ import pytz
 # --- Global cache for LWA token ---
 lwa_token_cache = { "token": None, "expires_at": 0 }
 
+# --- Create a global session for all RapidShyp requests ---
+rapidshyp_session = requests.Session()
+
 # Timezone
 TZ_INDIA = pytz.timezone('Asia/Kolkata')
 
@@ -38,6 +41,9 @@ def make_signed_api_request(config, options, max_retries=5):
         host, service, method, path, query_params = config['BASE_URL'].replace('https://', ''), 'execute-api', options['method'], options['path'], options.get('queryParams', {})
         region, secret_key, access_key = config['AWS_REGION'], config['AWS_SECRET_KEY'], config['AWS_ACCESS_KEY']
         
+        if not secret_key or not access_key or not region:
+            raise ValueError("AWS credentials (AWS_SECRET_KEY, AWS_ACCESS_KEY, AWS_REGION) are not configured properly in your .env file.")
+
         t = datetime.now(timezone.utc); amz_date = t.strftime('%Y%m%dT%H%M%SZ'); date_stamp = t.strftime('%Y%m%d')
         canonical_uri, canonical_querystring = path, urlencode(sorted(query_params.items()))
         canonical_headers = f"host:{host}\nx-amz-access-token:{access_token}\nx-amz-date:{amz_date}\n"; signed_headers = 'host;x-amz-access-token;x-amz-date'
@@ -59,14 +65,20 @@ def make_signed_api_request(config, options, max_retries=5):
         for attempt in range(max_retries):
             try:
                 response = requests.request(method, url, headers=headers, params=query_params)
+
                 if response.status_code == 429:
-                    delay = (2 ** attempt) + random.random(); time.sleep(delay)
+                    delay = (2 ** attempt) + (random.random() * 2)
+                    print(f"[RATE LIMIT] Amazon API is busy. Retrying in {delay:.2f} seconds...")
+                    time.sleep(delay)
                     continue
+
                 response.raise_for_status()
                 print("--- [SUCCESS] Amazon API Request Successful ---\n")
                 return response.json() if response.content else {}
             except requests.exceptions.RequestException as e:
+                print(f"Amazon SP-API request failed on attempt {attempt + 1}: {e}")
                 if attempt >= max_retries - 1: raise e
+                time.sleep((2 ** attempt) + random.random())
         raise Exception("Max retries exceeded for SP-API request.")
     except Exception as e:
         print(f"--- [CRITICAL ERROR] Amazon request failed: ---"); traceback.print_exc()
@@ -105,9 +117,9 @@ def get_all_shopify_orders_paginated(config, params):
     print(f"[Shopify] Total orders fetched: {len(all_orders)}")
     return all_orders
 
-# --- RAPIDSHYP FUNCTIONS ---
+# --- RAPIDSHYP FUNCTIONS (NOW WITH RETRY LOGIC) ---
 def get_raw_rapidshyp_status(awb, cache, config):
-    """Fetch current RapidShyp status for an AWB."""
+    """Fetch current RapidShyp status for an AWB with retry logic."""
     now = time.time()
     if awb in cache:
         entry = cache[awb]
@@ -115,70 +127,174 @@ def get_raw_rapidshyp_status(awb, cache, config):
             cached_status, last_checked = entry.get('raw_status', entry.get('status')), entry.get('timestamp', 0)
             if any(s in (cached_status or '').upper() for s in ['DELIVERED', 'RTO']) or (now - last_checked) < 3600:
                 return cached_status
+
     url = "https://api.rapidshyp.com/rapidshyp/apis/v1/track_order"
     headers = {"rapidshyp-token": config.get('RAPIDSHYP_API_KEY'), "Content-Type": "application/json"}
     if not headers["rapidshyp-token"]: return "API Key Missing"
-    try:
-        res = requests.post(url, headers=headers, json={'awb': awb}, timeout=10)
-        res.raise_for_status()
-        data = res.json()
-        if data.get('success') and data.get('records'):
-            shipment = data['records'][0].get('shipment_details', [{}])[0]
-            raw_status = shipment.get('current_tracking_status_desc') or shipment.get('current_tracking_status') or 'Status Not Available'
-            cache[awb] = {'raw_status': raw_status, 'timestamp': now}
-            return raw_status
-    except requests.exceptions.RequestException:
-        pass
+
+    for attempt in range(3): # Try up to 3 times
+        try:
+            res = rapidshyp_session.post(url, headers=headers, json={'awb': awb}, timeout=10)
+            if res.status_code == 429:
+                wait_time = (2 ** attempt) + random.random()
+                print(f"[RATE LIMIT] Waiting for {wait_time:.2f}s for AWB {awb}")
+                time.sleep(wait_time)
+                continue # Retry
+            
+            res.raise_for_status()
+            data = res.json()
+            if data.get('success') and data.get('records'):
+                shipment = data['records'][0].get('shipment_details', [{}])[0]
+                # --- THIS IS THE FIX ---
+                # Prioritize the specific shipment_status if available
+                raw_status = shipment.get('shipment_status') or \
+                             shipment.get('current_tracking_status_desc') or \
+                             shipment.get('current_tracking_status') or \
+                             'Status Not Available'
+                # --- END OF FIX ---
+                cache[awb] = {'raw_status': raw_status, 'timestamp': now}
+                return raw_status
+        except requests.exceptions.RequestException as e:
+            if attempt >= 2: # Last attempt failed
+                print(f"RapidShyp status fetch error for AWB {awb}: {e}")
+                break # Exit loop
+            time.sleep((2 ** attempt) + random.random()) # Wait before retrying non-429 errors
+    
     return "API Error or Timeout"
 
+
 def get_rapidshyp_timeline(awb, config):
-    """
-    Fetch full RapidShyp event timeline for an AWB.
-    Returns list of events: [{ "status": "...", "timestamp": "...", "location": "..." }, ...]
-    """
+    """Fetch full RapidShyp event timeline for an AWB with retry logic."""
     url = "https://api.rapidshyp.com/rapidshyp/apis/v1/track_order"
     headers = {"rapidshyp-token": config.get('RAPIDSHYP_API_KEY'), "Content-Type": "application/json"}
     if not headers["rapidshyp-token"]: 
         return []
-    try:
-        res = requests.post(url, headers=headers, json={'awb': awb}, timeout=10)
-        res.raise_for_status()
-        data = res.json()
-        if data.get('success') and data.get('records'):
-            shipment = data['records'][0].get('shipment_details', [{}])[0]
-            tracking_history = shipment.get('tracking_history', [])
-            events = []
-            for event in tracking_history:
-                # RapidShyp event structure - adapt field names as needed
-                status = event.get('status_desc') or event.get('status') or event.get('current_tracking_status_desc') or ''
-                timestamp = event.get('date') or event.get('timestamp') or event.get('event_time') or ''
-                location = event.get('location') or event.get('city') or ''
-                events.append({
-                    'status': status,
-                    'timestamp': timestamp,
-                    'location': location
-                })
-            return events
-    except requests.exceptions.RequestException as e:
-        print(f"RapidShyp timeline fetch error for AWB {awb}: {e}")
+
+    for attempt in range(3): # Try up to 3 times
+        try:
+            res = rapidshyp_session.post(url, headers=headers, json={'awb': awb}, timeout=10)
+            if res.status_code == 429:
+                wait_time = (2 ** attempt) + random.random()
+                print(f"[RATE LIMIT] Waiting for {wait_time:.2f}s for AWB timeline {awb}")
+                time.sleep(wait_time)
+                continue # Retry
+            
+            res.raise_for_status()
+            data = res.json()
+            if data.get('success') and data.get('records'):
+                shipment = data['records'][0].get('shipment_details', [{}])[0]
+                tracking_history = shipment.get('tracking_history', [])
+                events = []
+                for event in tracking_history:
+                    status = event.get('status_desc') or event.get('status') or event.get('current_tracking_status_desc') or ''
+                    timestamp = event.get('date') or event.get('timestamp') or event.get('event_time') or ''
+                    location = event.get('location') or event.get('city') or ''
+                    events.append({
+                        'status': status,
+                        'timestamp': timestamp,
+                        'location': location
+                    })
+                return events
+        except requests.exceptions.RequestException as e:
+            if attempt >= 2: # Last attempt failed
+                print(f"RapidShyp timeline fetch error for AWB {awb}: {e}")
+                break
+            time.sleep((2 ** attempt) + random.random())
+
     return []
 
+def has_rto_initiated(order):
+    """
+    Check if RTO has been initiated for this order.
+    Returns True if:
+    - rto_awb exists
+    - rapidshyp_rto_events has entries
+    - rapidshyp_rto_date is set
+    """
+    return bool(
+        order.get('rto_awb') or 
+        order.get('rapidshyp_rto_events') or 
+        order.get('rapidshyp_rto_date')
+    )
+
 def normalize_status(order, raw_status):
-    """Normalize order status based on RapidShyp and Shopify data."""
-    if order.get('cancelled_at'): return 'Cancelled'
+    """
+    Normalize order status based on webhook, RapidShyp, and Shopify data.
+    """
+    if order.get('cancelled_at'): 
+        return 'Cancelled'
+
+    # --- NEW: Prioritize accurate webhook status ---
+    webhook_status = order.get('rapidshyp_webhook_status')
+    if webhook_status:
+        status_upper = webhook_status.upper()
+        if 'RTO_DELIVERED' in status_upper or 'RTO' in status_upper:
+            return 'RTO'
+        if 'DELIVERED' in status_upper:
+            return 'Delivered'
+        if 'TRANSIT' in status_upper or 'OFD' in status_upper:
+            return 'In-Transit'
+        if 'CANCELLED' in status_upper:
+            return 'Cancelled'
+        if 'UNDELIVERED' in status_upper:
+            return 'Exception' # Treat undelivered as an exception to be reviewed
+
+        # ----- NEW CHECK: Handle exact shipment status terms -----
+        # Check for the exact terms you provided
+        if any(term in status_upper for term in ['IN_TRANSIT', 'SHIPPED', 'OUT_FOR_DELIVERY']):
+            return 'In-Transit'
+        if 'EXCEPTION' in status_upper:
+            return 'Exception'
+        # ----- end new checks -----
+
+        # Fallthrough to 'Processing' for other statuses like PICKED_UP, BOOKED, etc.
+        return 'Processing'
+
+    # --- Fallback to existing logic if no webhook status is present ---
     if not raw_status or raw_status in ["API Error or Timeout", "Status Not Available", "(blank)"]:
-        if order.get('fulfillment_status') == 'fulfilled': return 'Delivered'
-        elif order.get('fulfillments'): return 'Processing'
-        else: return 'Unfulfilled'
+        if order.get('fulfillment_status') == 'fulfilled': 
+            return 'Delivered'
+        elif order.get('fulfillments'): 
+            return 'Processing'
+        else: 
+            return 'Unfulfilled'
+    
     status_upper = raw_status.upper()
-    if "RTO" in status_upper or "RETURN" in status_upper: return 'RTO'
-    if "DELIVERED" in status_upper: return 'Delivered'
-    if any(s in status_upper for s in ["DELIVERY DELAYED", "IN TRANSIT", "REACHED AT DESTINATION", "UNDELIVERED", "PICKUP COMPLETED", "OUT FOR DELIVERY"]): return 'In-Transit'
-    if any(s in status_upper for s in ["LOST", "MISROUTED"]): return 'Exception'
-    if any(s in status_upper for s in ["NA", "PICK UP EXCEPTION", "PICKUP CANCELLED"]): return 'Cancelled'
-    if any(s in status_upper for s in ["SHIPMENT BOOKED", "OUT FOR PICKUP", "PICKUP SCHEDULED", "CREATED"]): return 'Processing'
-    if order.get('fulfillments'): return 'Processing'
+    rto_initiated = has_rto_initiated(order)
+    
+    if "UNDELIVERED" in status_upper:
+        return 'RTO' if rto_initiated else 'In-Transit'
+    
+    if any(s in status_upper for s in ["RTO", "RETURN TO ORIGIN", "RETURN INITIATED", "RETURNED"]):
+        return 'RTO'
+    
+    if "DELIVERED" in status_upper: 
+        return 'Delivered'
+    
+    # Handle the exact terms you provided
+    if any(s in status_upper for s in ["IN_TRANSIT", "SHIPPED", "OUT_FOR_DELIVERY", "OUT FOR DELIVERY", "IN TRANSIT"]): 
+        return 'In-Transit'
+    
+    if "EXCEPTION" in status_upper: 
+        return 'Exception'
+    
+    if any(s in status_upper for s in ["DELIVERY DELAYED", "REACHED AT DESTINATION", "PICKUP COMPLETED"]): 
+        return 'In-Transit'
+    
+    if any(s in status_upper for s in ["LOST", "MISROUTED"]): 
+        return 'Exception'
+    
+    if any(s in status_upper for s in ["NA", "PICK UP EXCEPTION", "PICKUP CANCELLED"]): 
+        return 'Cancelled'
+    
+    if any(s in status_upper for s in ["SHIPMENT BOOKED", "OUT FOR PICKUP", "PICKUP SCHEDULED", "CREATED", "READY TO SHIP", "READY"]): 
+        return 'Processing'
+    
+    if order.get('fulfillments'): 
+        return 'Processing'
+    
     return 'Unfulfilled'
+
 
 def get_real_order_status(order, rapidshyp_statuses):
     real_status = rapidshyp_statuses.get(order.get('name', ''))
@@ -186,6 +302,94 @@ def get_real_order_status(order, rapidshyp_statuses):
     if order.get('cancelled_at'): return 'Cancelled'
     if order.get('fulfillment_status') == 'fulfilled': return 'Delivered'
     return 'Processing'
+
+def get_rapidshyp_details(awb, config):
+    """
+    Returns {
+      "events": [ {status, timestamp, location}, ... ],
+      "rto_awb": str or None,
+      "raw_status": str or None
+    }
+    """
+    url = "https://api.rapidshyp.com/rapidshyp/apis/v1/track_order"
+    headers = {"rapidshyp-token": config.get('RAPIDSHYP_API_KEY'), "Content-Type": "application/json"}
+    if not headers["rapidshyp-token"]:
+        return {"events": [], "rto_awb": None, "raw_status": None}
+    try:
+        # --- MODIFIED: Use the session object ---
+        res = rapidshyp_session.post(url, headers=headers, json={'awb': awb}, timeout=12)
+        res.raise_for_status()
+        data = res.json()
+        if not (data.get('success') and data.get('records')):
+            return {"events": [], "rto_awb": None, "raw_status": None}
+
+        rec = data['records'][0]
+        shipment = (rec.get('shipment_details') or [{}])[0]
+
+        # Extract raw status
+        raw_status = (
+            shipment.get('current_tracking_status_desc') or
+            shipment.get('current_status') or
+            shipment.get('status') or
+            None
+        )
+
+        # Extract timeline events
+        history = shipment.get('tracking_history') or []
+        events = []
+        for ev in history:
+            status = ev.get('status_desc') or ev.get('status') or ev.get('current_tracking_status_desc') or ''
+            ts = ev.get('event_time') or ev.get('date') or ev.get('timestamp') or ev.get('time') or ''
+            loc = ev.get('location') or ev.get('city') or ''
+            events.append({"status": status, "timestamp": ts, "location": loc})
+
+        # Try to detect RTO AWB
+        possible_keys = ['rto_awb', 'return_awb', 'return_shipment_awb', 'linked_awb', 'child_awb', 'reverse_awb']
+        rto_awb = None
+        for k in possible_keys:
+            v = shipment.get(k)
+            if isinstance(v, str) and len(v) >= 8:
+                rto_awb = v
+                break
+
+        # Fallback: parse from history text
+        if not rto_awb:
+            for ev in history:
+                for field in ['remarks', 'note', 'status_desc', 'status']:
+                    txt = str(ev.get(field) or '')
+                    if 'AWB' in txt.upper() or 'RETURN' in txt.upper():
+                        parts = [p.strip(' ,.-:()[]') for p in txt.split()]
+                        for p in parts:
+                            if p != awb and len(p) >= 8 and p.replace('-','').isalnum():
+                                rto_awb = p
+                                break
+                    if rto_awb:
+                        break
+                if rto_awb:
+                    break
+
+        return {"events": events, "rto_awb": rto_awb, "raw_status": raw_status}
+    except Exception as e:
+        print(f"[RapidShyp] details fetch error for AWB {awb}: {e}")
+        return {"events": [], "rto_awb": None, "raw_status": None}
+
+def is_undelivered(order):
+    """Check if order is in Undelivered state."""
+    raw = (order.get('raw_rapidshyp_status') or '').upper()
+    if 'UNDELIVERED' in raw:
+        return True
+    events = (order.get('rapidshyp_rto_events') or []) + (order.get('rapidshyp_events') or [])
+    if events:
+        events_parsed = []
+        for e in events:
+            t = safe_parse_date(e.get('timestamp') or e.get('event_time') or e.get('date') or e.get('time'))
+            if t:
+                events_parsed.append((t, e))
+        if events_parsed:
+            events_parsed.sort(key=lambda x: x[0])
+            last_status = (events_parsed[-1][1].get('status') or '').upper()
+            return 'UNDELIVERED' in last_status
+    return False
 
 # --- ATTRIBUTION FUNCTIONS ---
 def get_order_source_term(order):
@@ -218,26 +422,19 @@ def get_facebook_ads(config, since, until):
 
 # --- DATE FILTER HELPERS WITH TIMEZONE SUPPORT ---
 def safe_parse_date(dt_str):
-    """
-    Parse datetime string to timezone-aware datetime object in IST.
-    Returns None on failure.
-    """
+    """Parse datetime string to timezone-aware datetime object in IST."""
     if not dt_str:
         return None
     
     try:
-        # Handle ISO format with timezone (Shopify format)
         dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
-        # Convert to IST
         return dt.astimezone(TZ_INDIA)
     except Exception:
         pass
     
-    # Try common formats without timezone (assume IST)
     for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%d-%m-%Y %H:%M:%S', '%d-%m-%Y', '%d/%m/%Y %H:%M:%S', '%d/%m/%Y']:
         try:
             dt = datetime.strptime(dt_str, fmt)
-            # Localize to IST if naive
             if dt.tzinfo is None:
                 dt = TZ_INDIA.localize(dt)
             return dt
@@ -247,11 +444,7 @@ def safe_parse_date(dt_str):
     return None
 
 def infer_shipped_datetime(order):
-    """
-    Infer first shipped/picked-up time from RapidShyp timeline, fallback to Shopify fulfillments.
-    Returns timezone-aware datetime in IST or None.
-    """
-    # 1) RapidShyp events (if persisted in master_order_data.json)
+    """Infer first shipped/picked-up time from RapidShyp timeline."""
     events = order.get('rapidshyp_events') or []
     candidates = []
     for ev in events:
@@ -259,7 +452,6 @@ def infer_shipped_datetime(order):
         t = safe_parse_date(ev.get('timestamp') or ev.get('time') or ev.get('event_time') or ev.get('date'))
         if not t:
             continue
-        # Keywords that indicate shipping began
         if any(k in status for k in [
             'PICKUP COMPLETED', 'OUT FOR PICKUP', 'IN TRANSIT', 'SHIPMENT BOOKED',
             'PICKUP SCHEDULED', 'PICKUP CONFIRMED', 'DISPATCHED', 'MANIFESTED',
@@ -269,7 +461,6 @@ def infer_shipped_datetime(order):
     if candidates:
         return min(candidates)
 
-    # 2) Shopify fulfillments
     fulfillments = order.get('fulfillments') or []
     candidates = []
     for f in fulfillments:
@@ -283,16 +474,11 @@ def infer_shipped_datetime(order):
     return None
 
 def infer_delivered_datetime(order):
-    """
-    Infer delivered time from RapidShyp timeline, then Shopify fulfillments.
-    Returns timezone-aware datetime in IST or None.
-    """
-    # 1) Explicit field (if you persist it)
+    """Infer delivered time from RapidShyp timeline."""
     delivered_at = safe_parse_date(order.get('delivered_at'))
     if delivered_at:
         return delivered_at
 
-    # 2) RapidShyp events - look for DELIVERED status
     events = order.get('rapidshyp_events') or []
     delivered_candidates = []
     for ev in events:
@@ -303,10 +489,8 @@ def infer_delivered_datetime(order):
         if 'DELIVERED' in status and 'UNDELIVERED' not in status and 'OUT FOR DELIVERY' not in status:
             delivered_candidates.append(t)
     if delivered_candidates:
-        # Use the first delivered timestamp (earliest delivery event)
         return min(delivered_candidates)
 
-    # 3) Shopify fulfillments as proxy (only if marked fulfilled)
     fulfillments = order.get('fulfillments') or []
     if order.get('fulfillment_status') == 'fulfilled' and fulfillments:
         t = safe_parse_date(fulfillments[-1].get('updated_at')) or safe_parse_date(fulfillments[-1].get('created_at'))
@@ -317,10 +501,7 @@ def infer_delivered_datetime(order):
 
 def pick_date_for_filter(order, date_filter_type: str):
     """
-    Returns a date (datetime.date in IST) to use for filtering, or None if not applicable.
-      - order_date: order['created_at'] converted to IST date
-      - shipped_date: inferred from RapidShyp events or Shopify fulfillments
-      - delivered_date: inferred from RapidShyp events or Shopify fulfillments (no fallback)
+    Returns a date (datetime.date in IST) to use for filtering.
     """
     date_filter_type = (date_filter_type or 'order_date').lower()
 
@@ -334,14 +515,10 @@ def pick_date_for_filter(order, date_filter_type: str):
         dt = infer_shipped_datetime(order)
         if dt:
             return dt.date()
-        # Fallback to created_at for orders without shipment info
         return created_date
 
     if date_filter_type == 'delivered_date':
         dt = infer_delivered_datetime(order)
-        # Only include if we have a real delivered timestamp
-        # NO fallback to created_at for delivered filter
         return dt.date() if dt else None
 
-    # Unknown type → default to order_date
     return created_date

@@ -77,8 +77,17 @@ body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
 <span class="ml-4 font-medium hidden lg:block">Ad Set Breakdown</span>
 </a>
+
+<!-- Reports Nav Item -->
+<a href="#" id="nav-reports" class="sidebar-link flex items-center p-3 lg:px-4 rounded-lg">
+<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-6h13M9 7h13M5 7h.01M5 17h.01M5 12h.01"/>
+</svg>
+<span class="ml-4 font-medium hidden lg:block">Reports</span>
+</a>
+
 <a href="#" id="nav-settings" class="sidebar-link flex items-center p-3 lg:px-4 rounded-lg">
-<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0 3.35a1.724 1.724 0 001.066 2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-2.924-2.924 0-3.35a1.724 1.724 0 00-1.066-2.572c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
 <span class="ml-4 font-medium hidden lg:block">Settings</span>
 </a>
 </nav>
@@ -264,6 +273,7 @@ body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
     <th>Spend (₹)</th>
     <th>Total Orders</th>
     <th>Delivered</th>
+    <th>Delivered Revenue (₹)</th>
     <th>RTO</th>
     <th>Cancelled</th>
     <th>In-Transit</th>
@@ -277,6 +287,32 @@ body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
 </table>
 </div>
 </div>
+</div>
+</div>
+
+<!-- Updated Reports View -->
+<div id="reports-view" class="view-hidden">
+<header class="bg-white/60 backdrop-blur-sm p-4 border-b border-slate-200 sticky top-0 z-20">
+  <div class="flex items-center justify-between">
+    <h1 class="text-2xl font-bold text-slate-900">Reports</h1>
+  </div>
+</header>
+<div class="p-4 lg:p-6 space-y-6">
+  <!-- Amazon MTR Tax Invoice Report -->
+  <div class="bg-white p-6 rounded-xl shadow-sm">
+    <h2 class="text-lg font-semibold mb-4">Amazon MTR Tax Invoice Report</h2>
+    <div class="flex flex-col sm:flex-row items-center gap-3">
+      <label class="text-sm text-slate-600 font-medium">Start Date:</label>
+      <input id="amazon-report-start-date" type="date" class="bg-slate-100 p-2 rounded-lg text-sm border border-slate-300 focus:ring-2 focus:ring-amber-500 focus:outline-none">
+      <label class="text-sm text-slate-600 font-medium">End Date:</label>
+      <input id="amazon-report-end-date" type="date" class="bg-slate-100 p-2 rounded-lg text-sm border border-slate-300 focus:ring-2 focus:ring-amber-500 focus:outline-none">
+      <button id="btn-download-amazon-report" class="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold px-4 py-2 rounded-lg shadow-md transition-all">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 12v8m0 0l-4-4m4 4l4-4M12 4v8" /></svg>
+        Download Excel
+      </button>
+    </div>
+    <p class="text-xs text-slate-500 mt-3">Generates MTR format with item-level details, ASIN, SKU, tax breakdown, GSTIN, and buyer info. One row per item.</p>
+  </div>
 </div>
 </div>
 

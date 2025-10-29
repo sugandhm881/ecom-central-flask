@@ -18,7 +18,8 @@ def create_app():
         from .api import amazon
         from .api import pdf_generator
         from .api import shipping
-        from .api import excel_report  # <-- ADD THIS IMPORT
+        from .api import excel_report
+        from .api import webhook_handler # <-- ADD THIS IMPORT
 
         # Register each blueprint with the main app
         app.register_blueprint(routes.main_bp)
@@ -29,6 +30,7 @@ def create_app():
         app.register_blueprint(amazon.amazon_bp, url_prefix='/api')
         app.register_blueprint(pdf_generator.pdf_bp, url_prefix='/api')
         app.register_blueprint(shipping.shipping_bp, url_prefix='/api')
-        app.register_blueprint(excel_report.excel_report_bp, url_prefix='/api') # <-- ADD THIS REGISTRATION
+        app.register_blueprint(excel_report.excel_report_bp, url_prefix='/api')
+        app.register_blueprint(webhook_handler.webhook_bp, url_prefix='/api/webhook') # <-- ADD THIS REGISTRATION
 
     return app

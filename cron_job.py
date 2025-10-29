@@ -8,6 +8,11 @@ from email import encoders
 from datetime import datetime
 import pytz
 
+# Ensure the app path is added if running cron_job.py from the root directory
+project_root = os.path.dirname(os.path.abspath(__file__))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 from app import create_app
 from app.api.adset_performance import get_adset_performance_data
 from app.api.pdf_generator import PDF
@@ -39,7 +44,6 @@ def send_email_with_attachment(pdf_data, since, until):
         server.login(email_user, email_password)
         server.sendmail(email_user, recipient_email, msg.as_string())
         server.quit()
-        # The checkmark emoji is safe to use now because of the runner.bat fix
         print(f"✅ Email sent successfully to {recipient_email}!")
     except Exception as e:
         print(f"[EMAIL ERROR] Failed to send email: {e}")
@@ -53,7 +57,15 @@ def generate_report():
         until_date = today_in_india.strftime('%Y-%m-%d')
         print(f"Generating report for India date range: {since_date} to {until_date}")
 
-        adset_data = get_adset_performance_data(since_date, until_date, app.config)
+        # --- THIS IS THE FIX ---
+        # Added the missing 'date_filter_type' argument
+        adset_data = get_adset_performance_data(
+            since_date,
+            until_date,
+            app.config,
+            date_filter_type='created_at' # Use Shopify Order Date as default for cron
+        )
+        # --- END OF FIX ---
 
         if not adset_data or not adset_data.get('adsetPerformance'):
             print("No performance data found for the period. Aborting report."); return
@@ -62,10 +74,7 @@ def generate_report():
         pdf = PDF()
         pdf.add_page(); pdf.create_summary(adset_data['adsetPerformance'], since_date, until_date); pdf.create_table(adset_data['adsetPerformance'])
         
-        # --- THIS IS THE PDF FIX ---
-        # The .output() method now correctly returns bytes directly.
         pdf_output_bytes = pdf.output()
-        # --- END OF FIX ---
         
         print(f"PDF generated successfully ({len(pdf_output_bytes)} bytes).")
         if len(pdf_output_bytes) > 0:
