@@ -8,7 +8,8 @@ __pycache__/
 # Add any other specific files you don't want to upload
 amazon_orders_cache.json
 amazon_items_cache.json
+master_order_data.json
 rapidshyp_cache.json
-master_order_data.json # Be careful: Upload this manually if needed, or fetch it on the server
+.txt
 *.xlsx # Don't upload generated reports
 *.pdf # Don't upload generated reports
