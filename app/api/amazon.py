@@ -9,6 +9,35 @@ from io import BytesIO
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
+
+# ---------------- ADD HERE ----------------
+def get_fetch_period():
+    """Return full period once per day, else month-to-date."""
+    today_str = datetime.utcnow().strftime('%Y-%m-%d')
+    cache_date_file = 'amazon_cache_date.txt'
+
+    full_fetch = False
+    if not os.path.exists(cache_date_file):
+        full_fetch = True
+    else:
+        with open(cache_date_file, 'r') as f:
+            last_fetch_date = f.read().strip()
+        if last_fetch_date != today_str:
+            full_fetch = True
+
+    # Save today as last fetch date
+    with open(cache_date_file, 'w') as f:
+        f.write(today_str)
+
+    if full_fetch:
+        ninety_days_ago = get_fetch_period()
+    else:
+        month_start = datetime.utcnow().replace(day=1)
+        ninety_days_ago = month_start.isoformat() + 'Z'
+
+    return ninety_days_ago
+# ---------------- END ADD ----------------
+
 amazon_bp = Blueprint('amazon', __name__)
 AMAZON_CACHE_FILE = 'amazon_cache.json'
 AMAZON_ITEMS_CACHE_FILE = 'amazon_items_cache.json'

@@ -10,6 +10,6 @@ amazon_orders_cache.json
 amazon_items_cache.json
 master_order_data.json
 rapidshyp_cache.json
-.txt
+
 *.xlsx # Don't upload generated reports
 *.pdf # Don't upload generated reports
