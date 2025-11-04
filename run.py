@@ -1,12 +1,13 @@
 from app import create_app
+from werkzeug.middleware.proxy_fix import ProxyFix
 
-# This creates the Flask application instance using the factory function
-# defined in our app/__init__.py file.
+# Create Flask app instance
 app = create_app()
 
+# ✅ Fix for HTTPS behind Nginx reverse proxy
+# This ensures Flask correctly recognizes secure requests
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+
 if __name__ == '__main__':
-    # This block runs only when you execute "python run.py" directly.
-    # The debug=True flag enables auto-reloading when you save a file
-    # and provides helpful error pages during development.
-    # For a production deployment, this should be set to False.
+    # Run only for local testing — not used in production with Gunicorn
     app.run(debug=True)
