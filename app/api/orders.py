@@ -33,7 +33,7 @@ def normalize_shopify_order(order):
 def get_orders():
     config = current_app.config
     try:
-        sixty_days_ago = (datetime.now() - timedelta(days=60)).isoformat()
+        sixty_days_ago = (datetime.now() - timedelta(days=30)).isoformat()
         shopify_params = {
             'status': 'any', 'limit': 250,
             'created_at_min': sixty_days_ago,
