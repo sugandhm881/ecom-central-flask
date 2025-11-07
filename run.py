@@ -8,6 +8,5 @@ app = create_app()
 # This ensures Flask correctly recognizes secure requests
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
-if __name__ == '__main__':
-    # Run only for local testing — not used in production with Gunicorn
-    app.run(debug=True)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5001)
