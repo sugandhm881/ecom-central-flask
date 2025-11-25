@@ -499,25 +499,43 @@ function updateAdsetSummary(data) {
       acc.deliveredRevenue += parseFloat(item.deliveredRevenue) || 0;
       acc.rto += parseInt(item.rtoOrders) || 0;
       acc.cancelled += parseInt(item.cancelledOrders) || 0;
+      acc.inTransit += parseInt(item.inTransitOrders) || 0; // <--- ADDED THIS
       return acc;
     },
-    { spend: 0, totalOrders: 0, delivered: 0, deliveredRevenue: 0, rto: 0, cancelled: 0 }
+    { spend: 0, totalOrders: 0, delivered: 0, deliveredRevenue: 0, rto: 0, cancelled: 0, inTransit: 0 }
   );
 
-  // --- Update Summary KPIs ---
+  // --- Standard Metrics ---
+  const totalRoas = totals.spend > 0 ? (totals.deliveredRevenue / totals.spend) : 0;
+
+  // --- 🧮 Effective ROAS Calculation ---
+  // 1. Calculate Global Delivered AOV (Revenue / Delivered Orders)
+  const globalDeliveredAov = totals.delivered > 0 ? totals.deliveredRevenue / totals.delivered : 0;
+  
+  // 2. Calculate Global RTO %
+  const totalDenom = totals.delivered + totals.rto + totals.cancelled;
+  const globalRtoRate = totalDenom > 0 ? (totals.rto + totals.cancelled) / totalDenom : 0;
+  
+  // 3. Calculate Projected Revenue from In-Transit
+  const projectedInTransitRevenue = totals.inTransit * (1 - globalRtoRate) * globalDeliveredAov;
+  
+  // 4. Final Calculation
+  const projectedTotalRevenue = totals.deliveredRevenue + projectedInTransitRevenue;
+  const totalEffRoas = totals.spend > 0 ? projectedTotalRevenue / totals.spend : 0;
+
+  // --- Update DOM ---
   document.getElementById("totalSpend").textContent = formatCurrency(totals.spend);
   document.getElementById("totalRevenue").textContent = formatCurrency(totals.deliveredRevenue);
   document.getElementById("totalOrders").textContent = formatNumber(totals.totalOrders);
   document.getElementById("totalDelivered").textContent = formatNumber(totals.delivered);
   document.getElementById("totalRTO").textContent = formatNumber(totals.rto);
   document.getElementById("totalCancelled").textContent = formatNumber(totals.cancelled);
-
-  // --- 🧮 Add ROAS (Return on Ad Spend) ---
-  const roas = totals.spend > 0 ? (totals.deliveredRevenue / totals.spend) : 0;
+  
   const roasEl = document.getElementById("totalRoas");
-  if (roasEl) {
-    roasEl.textContent = `${roas.toFixed(2)}x`;
-  }
+  if (roasEl) roasEl.textContent = `${totalRoas.toFixed(2)}x`;
+
+  const effRoasEl = document.getElementById("totalEffRoas");
+  if (effRoasEl) effRoasEl.textContent = `${totalEffRoas.toFixed(2)}x`; // <--- Update UI
 
   card.classList.remove("hidden");
 }
@@ -527,7 +545,6 @@ function updateAdsetSummary(data) {
 // Renders Adset dashboard, now with sorting and summary card
 function renderAdsetPerformanceDashboard() {
     
-    // Call summary function
     updateAdsetSummary(adsetPerformanceData);
     
     // Sort data if sort key is set
@@ -536,7 +553,6 @@ function renderAdsetPerformanceDashboard() {
             let valA = a[currentSortKey];
             let valB = b[currentSortKey];
 
-            // Handle 'name' (string) vs other (numeric) keys
             if (currentSortKey === 'name') {
                  return currentSortOrder === "asc"
                    ? String(valA).localeCompare(String(valB))
@@ -552,24 +568,31 @@ function renderAdsetPerformanceDashboard() {
     // Render table body
     adsetPerformanceTableBody.innerHTML = '';
     if (!adsetPerformanceData || adsetPerformanceData.length === 0) {
-        adsetPerformanceTableBody.innerHTML = `<tr><td colspan="13" class="p-4 text-center text-slate-500">No ad set data found for this period.</td></tr>`;
+        adsetPerformanceTableBody.innerHTML = `<tr><td colspan="14" class="p-4 text-center text-slate-500">No ad set data found for this period.</td></tr>`;
         return;
     }
     
     adsetPerformanceData.forEach(adset => {
         const t = adset.totalOrders || 0;
 
-        // RTO% = (RTO + Cancelled) / (Delivered + RTO + Cancelled)
+        // RTO% Logic
         const denomAdset = (adset.deliveredOrders || 0) + (adset.rtoOrders || 0) + (adset.cancelledOrders || 0);
         const o = denomAdset > 0 ? ((adset.rtoOrders || 0) + (adset.cancelledOrders || 0)) / denomAdset : 0;
-        adset.rtoPercent = o; // Assign for sorting
+        adset.rtoPercent = o; 
 
         const spend = adset.spend || 0;
         const costPerOrder = (spend > 0 && t > 0) ? (spend / t) : 0;
-        adset.cpo = costPerOrder; // Assign for sorting
+        adset.cpo = costPerOrder; 
         
         const r = spend > 0 ? (adset.deliveredRevenue || 0) / spend : 0;
-        adset.roas = r; // Assign for sorting
+        adset.roas = r; 
+
+        // --- 🧮 Calculate Effective ROAS (Row Level) ---
+        const deliveredAov = adset.deliveredOrders > 0 ? adset.deliveredRevenue / adset.deliveredOrders : 0;
+        const inTransit = adset.inTransitOrders || 0;
+        const projectedRev = adset.deliveredRevenue + (inTransit * (1 - o) * deliveredAov);
+        const effRoas = spend > 0 ? projectedRev / spend : 0;
+        adset.effectiveRoas = effRoas; // Store for PDF/Sorting
 
         let adsetRow = `
           <tr class="border-b border-slate-200 bg-slate-50 cursor-pointer" data-adset-id="${adset.id}">
@@ -586,6 +609,7 @@ function renderAdsetPerformanceDashboard() {
             <td class="py-3 px-4 text-right font-bold text-red-600">${formatPercent(o)}</td>
             <td class="py-3 px-4 text-right font-bold">${formatCurrency(costPerOrder)}</td>
             <td class="py-3 px-4 text-right font-bold">${r.toFixed(2)}x</td>
+            <td class="py-3 px-4 text-right font-bold text-indigo-600">${effRoas.toFixed(2)}x</td>
           </tr>`;
 
         (adset.terms || []).forEach(term => {
@@ -595,6 +619,12 @@ function renderAdsetPerformanceDashboard() {
             const spendTerm = term.spend || 0;
             const costPerOrderTerm = (spendTerm > 0 && tTerm > 0) ? (spendTerm / tTerm) : 0;
             const rTerm = spendTerm > 0 ? (term.deliveredRevenue || 0) / spendTerm : 0;
+
+            // --- 🧮 Term Level Eff ROAS ---
+            const delAovTerm = term.deliveredOrders > 0 ? term.deliveredRevenue / term.deliveredOrders : 0;
+            const inTransitTerm = term.inTransitOrders || 0;
+            const projRevTerm = term.deliveredRevenue + (inTransitTerm * (1 - oTerm) * delAovTerm);
+            const effRoasTerm = spendTerm > 0 ? projRevTerm / spendTerm : 0;
 
             adsetRow += `
               <tr class="adset-term-row hidden border-b border-slate-100" data-parent-adset-id="${adset.id}">
@@ -610,6 +640,7 @@ function renderAdsetPerformanceDashboard() {
                 <td class="py-2 px-4 text-right text-sm text-red-600">${formatPercent(oTerm)}</td>
                 <td class="py-2 px-4 text-right text-sm">${formatCurrency(costPerOrderTerm)}</td>
                 <td class="py-2 px-4 text-right text-sm">${rTerm.toFixed(2)}x</td>
+                <td class="py-2 px-4 text-right text-sm text-indigo-600">${effRoasTerm.toFixed(2)}x</td>
               </tr>`;
         });
 
@@ -660,7 +691,7 @@ d.setUTCHours(23,59,59,999);return[a,d]}
 function calculateComparisonMetrics(c,a,p,s,e){let t,d,l='';if(!s||!e)return{periodLabel:'',revenueTrend:'',ordersTrend:''};const o=insightsPlatformFilter==='All'?a:a.filter(r=>r.platform===insightsPlatformFilter);switch(p){case'last_7_days':t=new Date(s);t.setDate(s.getDate()-7);d=new Date(e);d.setDate(e.getDate()-7);l='vs Previous Week';break;case'mtd':case'last_month':t=new Date(s);t.setMonth(s.getMonth()-1);d=new Date(t.getFullYear(),t.getMonth()+1,0);l='vs Previous Month';break;default:return{periodLabel:'',revenueTrend:'',ordersTrend:''}}
 d.setHours(23,59,59,999);const r=o.filter(i=>{const n=new Date(i.date);return n>=t&&n<=d});const u=c.filter(i=>i.status!=='Cancelled').reduce((n,i)=>n+i.total,0);const f=r.filter(i=>i.status!=='Cancelled').reduce((n,i)=>n+i.total,0);const h=(n,i)=>{if(i===0)return n>0?'+100%':'+0%';const v=((n-i)/i)*100;return`${v>=0?'+':''}${v.toFixed(1)}%`};return{periodLabel:l,revenueTrend:h(u,f),ordersTrend:h(c.length,r.length)}}
 function updateDashboardKpis(o){const k={new:0,processing:0,shipped:0,cancelled:0};o.forEach(s=>{if(s.status==='New')k.new++;else if(s.status==='Processing')k.processing++;else if(s.status==='Shipped')k.shipped++;else if(s.status==='Cancelled')k.cancelled++});const renderKpi=(e,t,v,i)=>{e.innerHTML=`<div class="flex items-center">${i}<p class="text-sm font-medium text-slate-500 ml-2">${t}</p></div><p class="text-3xl font-bold text-slate-800 mt-2">${v}</p>`};renderKpi(dashboardKpiElements.newOrders,'New Orders',k.new,`<svg class="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>`);renderKpi(dashboardKpiElements.processing,'Processing',k.processing,`<svg class="w-6 h-6 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`);renderKpi(dashboardKpiElements.shipped,'Shipped',k.shipped,`<svg class="w-6 h-6 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17H6V6h11v4l4 4v2h-3zM6 6l6-4l6 4"></path></svg>`);renderKpi(dashboardKpiElements.cancelled,'Cancelled',k.cancelled,`<svg class="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>`)}
-function updateInsightsKpis(o,c){const a=o.filter(s=>s.status!=='Cancelled');const t=a.reduce((s,r)=>s+r.total,0);const v=a.length>0?t/a.length:0;const l=o.length;const n=o.filter(s=>s.status==='New').length;const p=o.filter(s=>s.status==='Shipped').length;const r=0;const d=o.filter(s=>s.status==='Cancelled').length;const renderKpi=(e,i,u,f,h,m)=>{const g=h&&h.startsWith('+')?'text-green-500':'text-red-500';e.innerHTML=`<div class="flex items-center">${f}<p class="text-xs font-medium text-slate-500 ml-2">${i}</p></div><p class="text-2xl font-bold text-slate-800 mt-2">${u}</p>${h?`<p class="text-xs ${g} mt-1">${h} <span class="text-slate-400">${m}</span></p>`:`<p class="text-xs text-slate-400 mt-1">&nbsp;</p>`}`};renderKpi(insightsKpiElements.revenue.el,'Total Revenue',formatCurrency(t),`<svg class="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v.01"></path></svg>`,c.revenueTrend,c.periodLabel);renderKpi(insightsKpiElements.avgValue.el,'Avg. Value',formatCurrency(v),`<svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 6l3 6h10a2 2 0 001.79-1.11L21 8M6 18h12a2 2 0 002-2v-5a2 2 0 00-2-2H6a2 2 0 00-2 2v5a2 2 0 002 2z"></path></svg>`,'','');renderKpi(insightsKpiElements.allOrders.el,'All Orders',l,`<svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>`,c.ordersTrend,c.periodLabel);renderKpi(insightsKpiElements.new.el,'New Orders',n,`<svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>`,'','');renderKpi(insightsKpiElements.shipped.el,'Shipped',p,`<svg class="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17H6V6h11v4l4 4v2h-3zM6 6l6-4l6 4"></path></svg>`,'','');renderKpi(insightsKpiElements.rto.el,'RTO',r,`<svg class="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9l-5 5-5-5"></path></svg>`,'','');renderKpi(insightsKpiElements.cancelled.el,'Cancelled',d,`<svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>`,'','')}
+function updateInsightsKpis(o,c){const a = o.filter(s => !['Cancelled', 'RTO'].includes(s.status));const t=a.reduce((s,r)=>s+r.total,0);const v=a.length>0?t/a.length:0;const l=o.length;const n=o.filter(s=>s.status==='New').length;const p=o.filter(s=>s.status==='Shipped').length;const r=0;const d=o.filter(s=>s.status==='Cancelled').length;const renderKpi=(e,i,u,f,h,m)=>{const g=h&&h.startsWith('+')?'text-green-500':'text-red-500';e.innerHTML=`<div class="flex items-center">${f}<p class="text-xs font-medium text-slate-500 ml-2">${i}</p></div><p class="text-2xl font-bold text-slate-800 mt-2">${u}</p>${h?`<p class="text-xs ${g} mt-1">${h} <span class="text-slate-400">${m}</span></p>`:`<p class="text-xs text-slate-400 mt-1">&nbsp;</p>`}`};renderKpi(insightsKpiElements.revenue.el,'Total Revenue',formatCurrency(t),`<svg class="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v.01"></path></svg>`,c.revenueTrend,c.periodLabel);renderKpi(insightsKpiElements.avgValue.el,'Avg. Value',formatCurrency(v),`<svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 6l3 6h10a2 2 0 001.79-1.11L21 8M6 18h12a2 2 0 002-2v-5a2 2 0 00-2-2H6a2 2 0 00-2 2v5a2 2 0 002 2z"></path></svg>`,'','');renderKpi(insightsKpiElements.allOrders.el,'All Orders',l,`<svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>`,c.ordersTrend,c.periodLabel);renderKpi(insightsKpiElements.new.el,'New Orders',n,`<svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>`,'','');renderKpi(insightsKpiElements.shipped.el,'Shipped',p,`<svg class="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17H6V6h11v4l4 4v2h-3zM6 6l6-4l6 4"></path></svg>`,'','');renderKpi(insightsKpiElements.rto.el,'RTO',r,`<svg class="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9l-5 5-5-5"></path></svg>`,'','');renderKpi(insightsKpiElements.cancelled.el,'Cancelled',d,`<svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>`,'','')}
 function renderInsightCharts(o,s,e){if(revenueChartInstance)revenueChartInstance.destroy();if(platformChartInstance)platformChartInstance.destroy();if(paymentChartInstance)paymentChartInstance.destroy();const d={};if(s&&e){let c=new Date(s);while(c<=e){d[c.toISOString().split('T')[0]]=0;c.setDate(c.getDate()+1)}}
 o.forEach(r=>{if(r.status!=='Cancelled'){const i=new Date(r.date).toISOString().split('T')[0];if(d[i]!==undefined)d[i]+=r.total}});revenueChartInstance=new Chart(revenueChartCanvas,{type:'line',data:{labels:Object.keys(d).map(l=>new Date(l).toLocaleDateString('en-US',{timeZone:'UTC',month:'short',day:'numeric'})),datasets:[{label:'Revenue',data:Object.values(d),borderColor:'rgb(79, 70, 229)',backgroundColor:'rgba(79, 70, 229, 0.1)',fill:true,tension:0.1}]},options:{responsive:true,maintainAspectRatio:false,plugins:{title:{display:true,text:'Revenue Over Time'}}}});const p={Shopify:0,Amazon:0};o.forEach(r=>{if(r.status!=='Cancelled'&&p[r.platform]!==undefined)p[r.platform]+=r.total});platformChartInstance=new Chart(platformChartCanvas,{type:'doughnut',data:{labels:Object.keys(p),datasets:[{data:Object.values(p),backgroundColor:['#96bf48','#ff9900']}]},options:{responsive:true,maintainAspectRatio:false,plugins:{title:{display:true,text:'Revenue by Platform'}}}});const m={Prepaid:0,COD:0};o.forEach(r=>{if(r.paymentMethod){const i=r.paymentMethod.toLowerCase();if(i.includes("cod")||i.includes("cash")){m.COD++}else{m.Prepaid++}}});paymentChartInstance=new Chart(paymentChartCanvas,{type:'doughnut',data:{labels:Object.keys(m),datasets:[{data:Object.values(m),backgroundColor:['#10b981','#f59e0b']}]},options:{responsive:true,maintainAspectRatio:false,plugins:{title:{display:true,text:'Prepaid vs. COD'},tooltip:{callbacks:{label:c=>{const t=c.chart.data.datasets[0].data.reduce((a,b)=>a+b,0);const p=t>0?((c.raw/t)*100).toFixed(1)+'%':'0%';return`${c.label}: ${c.raw} (${p})`}}}}}})}
 function renderSettings(){const c=document.getElementById('seller-connections');c.innerHTML=connections.map(e=>`<div class="bg-white p-4 rounded-lg shadow-sm flex items-center justify-between"><div class="flex items-center"><img src="${platformLogos[e.name]}" class="w-10 h-10 mr-4"><div><p class="font-semibold text-lg">${e.name}</p><p class="text-sm text-slate-500">${e.status==='Connected'?e.user:'Click to connect'}</p></div></div><button data-platform="${e.name}" data-action="${e.status==='Connected'?'disconnect':'connect'}" class="connection-btn ${e.status==='Connected'?'font-medium text-sm text-red-600 hover:text-red-800':'font-medium text-sm text-white bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded-lg'}">${e.status==='Connected'?'Disconnect':'Connect'}</button></div>`).join('');document.querySelectorAll('.connection-btn').forEach(b=>b.addEventListener('click',e=>handleConnection(e.currentTarget.dataset.platform,e.currentTarget.dataset.action)))}

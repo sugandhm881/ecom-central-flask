@@ -30,7 +30,7 @@ def get_fetch_period():
         f.write(today_str)
 
     if full_fetch:
-        ninety_days_ago = get_fetch_period()
+        ninety_days_ago = (datetime.utcnow() - timedelta(days=45)).isoformat() + 'Z'
     else:
         month_start = datetime.utcnow().replace(day=1)
         ninety_days_ago = month_start.isoformat() + 'Z'
@@ -38,15 +38,17 @@ def get_fetch_period():
     return ninety_days_ago
 # ---------------- END ADD ----------------
 
+
 amazon_bp = Blueprint('amazon', __name__)
 AMAZON_CACHE_FILE = 'amazon_cache.json'
 AMAZON_ITEMS_CACHE_FILE = 'amazon_items_cache.json'
-CACHE_DURATION_SECONDS = 30 * 60  # Cache for 10 minutes
+CACHE_DURATION_SECONDS = 30 * 60  # 30 minutes cache
+
 
 def fetch_amazon_orders(config):
     """
     Fetches Amazon orders, using a file-based cache to avoid rate-limiting.
-    NOW includes a request for PII data elements.
+    Includes request for PII data elements (buyer info + shipping address).
     """
     if os.path.exists(AMAZON_CACHE_FILE):
         cache_age = time.time() - os.path.getmtime(AMAZON_CACHE_FILE)
@@ -61,89 +63,100 @@ def fetch_amazon_orders(config):
         print("[WARNING] Amazon SP-API credentials not set. Skipping Amazon orders.")
         return []
 
-    ninety_days_ago = (datetime.utcnow() - timedelta(days=180)).isoformat() + 'Z'
+    ninety_days_ago = get_fetch_period()
     all_amazon_orders_raw, next_token = [], None
     page = 1
     consecutive_quota_errors = 0
-    
+
     try:
         while True:
             print(f"[Amazon API] Fetching page {page}...")
             query_params = {
-                'MarketplaceIds': config['MARKETPLACE_ID'], 
+                'MarketplaceIds': config['MARKETPLACE_ID'],
                 'CreatedAfter': ninety_days_ago,
-                # --- THIS IS THE FIX FOR PII ---
-                # Request buyer info and shipping address, which are restricted data elements.
                 'dataElements': 'buyerInfo,shippingAddress'
             }
-            if next_token: 
+            if next_token:
                 query_params['NextToken'] = next_token
-            
+
             options = {
-                'method': 'GET', 
-                'path': '/orders/v0/orders', 
+                'method': 'GET',
+                'path': '/orders/v0/orders',
                 'queryParams': query_params
             }
-            
+
             try:
                 response_data = make_signed_api_request(config, options)
-                
+
+                if not isinstance(response_data, dict):
+                    print(f"[Amazon API] ❌ Invalid response format on page {page}")
+                    break
+
                 payload = response_data.get('payload', {})
                 orders_payload = payload.get('Orders', [])
                 all_amazon_orders_raw.extend(orders_payload)
-                
-                print(f"[Amazon API] Fetched page {page} ({len(orders_payload)} orders, total: {len(all_amazon_orders_raw)})")
-                
+
+                print(f"[Amazon API] ✅ Fetched page {page} ({len(orders_payload)} orders, total: {len(all_amazon_orders_raw)})")
+
                 consecutive_quota_errors = 0
                 next_token = payload.get('NextToken')
                 page += 1
-                
-                if not next_token: 
+
+                if not next_token:
                     break
-                
-                if page <= 5: time.sleep(2)
-                elif page <= 10: time.sleep(3)
-                else: time.sleep(5)
-                    
+
+                # Adaptive sleep between pages
+                time.sleep(2 if page <= 5 else 5)
+
             except Exception as api_error:
                 error_str = str(api_error)
                 if 'QuotaExceeded' in error_str or 'quota' in error_str.lower():
                     consecutive_quota_errors += 1
                     wait_time = 60 * consecutive_quota_errors
-                    print(f"[Amazon API] Quota exceeded at page {page}, waiting {wait_time} seconds...")
+                    print(f"[Amazon API] ⚠️ Quota exceeded at page {page}, waiting {wait_time}s...")
                     time.sleep(wait_time)
-                    
+
                     if consecutive_quota_errors >= 5:
-                        print(f"[Amazon API] Too many quota errors, stopping at {len(all_amazon_orders_raw)} orders")
+                        print(f"[Amazon API] ❌ Too many quota errors, stopping after {len(all_amazon_orders_raw)} orders.")
                         break
                     continue
+                elif 'timed out' in error_str.lower():
+                    print(f"[Amazon API] ❌ Timeout on page {page}, skipping after retry.")
+                    continue
                 else:
-                    raise api_error
+                    print(f"[Amazon API] ❌ Unhandled error on page {page}: {error_str}")
+                    break
 
-        print(f"✅ Successfully fetched a total of {len(all_amazon_orders_raw)} Amazon orders.")
-        
+        print(f"✅ Successfully fetched total {len(all_amazon_orders_raw)} Amazon orders.")
+
         with open(AMAZON_CACHE_FILE + '.raw', 'w') as f:
             json.dump(all_amazon_orders_raw, f)
-        
+
         normalized_orders = [normalize_amazon_order(order) for order in all_amazon_orders_raw]
-        
+
         with open(AMAZON_CACHE_FILE, 'w') as f:
             json.dump(normalized_orders, f)
-            
+
         return normalized_orders
 
     except Exception as e:
         print(f"--- [ERROR] The Amazon SP-API request failed. Error: {e} ---")
+        # Return cached data as fallback
+        if os.path.exists(AMAZON_CACHE_FILE):
+            print("[Amazon API] ⚠️ Returning last cached Amazon data due to error.")
+            with open(AMAZON_CACHE_FILE, 'r') as f:
+                return json.load(f)
         return []
 
+
 def normalize_amazon_order(order):
-    """Normalize Amazon order, now correctly extracting PII data."""
+    """Normalize Amazon order and extract PII data (buyer info + address)."""
     address = order.get('ShippingAddress', {}) or {}
     buyer_info = order.get('BuyerInfo', {}) or {}
-    
-    # --- FIX: Extract buyer name from PII data ---
+
+    # Extract buyer name safely
     customer_name = buyer_info.get('BuyerName', 'N/A')
-    if customer_name == 'N/A': # Fallback for some cases
+    if customer_name == 'N/A':
         customer_name = address.get('Name', 'N/A')
 
     order_date_raw = order.get('PurchaseDate', '')
@@ -151,25 +164,26 @@ def normalize_amazon_order(order):
         order_date = datetime.fromisoformat(order_date_raw.replace('Z', '+00:00')).strftime('%Y-%m-%d')
     except:
         order_date = order_date_raw
-    
+
     return {
-        "platform": "Amazon", 
-        "id": order['AmazonOrderId'], 
-        "originalId": order['AmazonOrderId'],
+        "platform": "Amazon",
+        "id": order.get('AmazonOrderId', 'N/A'),
+        "originalId": order.get('AmazonOrderId', 'N/A'),
         "date": order_date,
-        "name": customer_name, # <-- Use the extracted name
+        "name": customer_name,
         "total": float(order.get('OrderTotal', {}).get('Amount', 0)),
         "status": {
-            'Pending': 'New', 
-            'Unshipped': 'New', 
-            'PartiallyShipped': 'Processing', 
-            'Shipped': 'Shipped', 
+            'Pending': 'New',
+            'Unshipped': 'New',
+            'PartiallyShipped': 'Processing',
+            'Shipped': 'Shipped',
             'Canceled': 'Cancelled'
-        }.get(order['OrderStatus'], 'Processing'),
-        "items": [], # Items will be fetched in a separate step
+        }.get(order.get('OrderStatus', ''), 'Processing'),
+        "items": [],
         "address": f"{address.get('AddressLine1', '')}, {address.get('City', '')}".strip(', ') or 'No address',
         "paymentMethod": order.get('PaymentMethod', 'N/A')
     }
+
 
 def get_cached_order_items(order_id):
     """Get items for an order from cache"""
@@ -183,6 +197,7 @@ def get_cached_order_items(order_id):
             pass
     return None
 
+
 def save_order_items_to_cache(order_id, items):
     """Save items for an order to cache"""
     items_cache = {}
@@ -192,18 +207,19 @@ def save_order_items_to_cache(order_id, items):
                 items_cache = json.load(f)
         except:
             pass
-    
+
     items_cache[order_id] = items
-    
+
     with open(AMAZON_ITEMS_CACHE_FILE, 'w') as f:
         json.dump(items_cache, f)
+
 
 def fetch_order_items_batch(config, order_ids, auto_fetch=False):
     """Fetch items for multiple orders with quota handling and caching"""
     order_items_map = {}
-    
+
     print(f"[Amazon] Loading items from cache for {len(order_ids)} orders...")
-    
+
     missing_order_ids = []
     for order_id in order_ids:
         cached_items = get_cached_order_items(order_id)
@@ -212,19 +228,19 @@ def fetch_order_items_batch(config, order_ids, auto_fetch=False):
         else:
             missing_order_ids.append(order_id)
             order_items_map[order_id] = []
-    
+
     cached_count = sum(1 for items in order_items_map.values() if items)
     print(f"[Amazon] Loaded {cached_count}/{len(order_ids)} orders with items from cache")
-    
+
     if auto_fetch and missing_order_ids:
         print(f"[Amazon] Auto-fetching items for {len(missing_order_ids)} orders...")
-        print(f"[Amazon] ⚠️ This will take approximately {len(missing_order_ids) * 0.5:.0f} seconds due to API rate limits")
-        
+        print(f"[Amazon] ⚠️ This may take {len(missing_order_ids) * 0.5:.0f}s due to rate limits")
+
         def fetch_single_order_items(order_id):
             """Fetch items for a single order with retry logic"""
             retry_count = 0
             max_retries = 2
-            
+
             while retry_count < max_retries:
                 try:
                     options = {
@@ -232,12 +248,12 @@ def fetch_order_items_batch(config, order_ids, auto_fetch=False):
                         'path': f'/orders/v0/orders/{order_id}/orderItems',
                         'queryParams': {}
                     }
-                    
+
                     response_data = make_signed_api_request(config, options)
                     items = response_data.get('payload', {}).get('OrderItems', [])
                     save_order_items_to_cache(order_id, items)
                     return (order_id, items, None)
-                    
+
                 except Exception as e:
                     error_str = str(e)
                     if 'QuotaExceeded' in error_str or 'quota' in error_str.lower():
@@ -247,22 +263,22 @@ def fetch_order_items_batch(config, order_ids, auto_fetch=False):
                     else:
                         save_order_items_to_cache(order_id, [])
                         return (order_id, [], str(e))
-            
+
             save_order_items_to_cache(order_id, [])
             return (order_id, [], "Max retries exceeded")
-        
+
         from concurrent.futures import ThreadPoolExecutor, as_completed
-        
+
         fetched_count = 0
         error_count = 0
-        
+
         with ThreadPoolExecutor(max_workers=4) as executor:
-            futures = {executor.submit(fetch_single_order_items, order_id): order_id 
-                      for order_id in missing_order_ids}
-            
+            futures = {executor.submit(fetch_single_order_items, order_id): order_id
+                       for order_id in missing_order_ids}
+
             for future in as_completed(futures):
                 order_id, items, error = future.result()
-                
+
                 if error:
                     error_count += 1
                     if error_count <= 5:
@@ -270,13 +286,13 @@ def fetch_order_items_batch(config, order_ids, auto_fetch=False):
                 else:
                     order_items_map[order_id] = items
                     fetched_count += 1
-                
+
                 total_processed = fetched_count + error_count
                 if total_processed % 50 == 0:
-                    print(f"[Amazon] Progress: {total_processed}/{len(missing_order_ids)} orders processed ({fetched_count} success, {error_count} failed)")
-                
+                    print(f"[Amazon] Progress: {total_processed}/{len(missing_order_ids)} processed")
+
                 time.sleep(0.5)
-        
+
         print(f"[Amazon] ✅ Auto-fetch complete: {fetched_count} fetched, {error_count} failed")
-    
+
     return order_items_map

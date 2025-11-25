@@ -5,6 +5,17 @@ load_dotenv()
 
 class Config:
     SECRET_KEY = os.environ.get('JWT_SECRET') or 'you-should-really-change-this'
+
+    # Add your Database URI
+    # You need to find your HOST and PASSWORD from Hostinger
+    DB_USER = "u136347904_ecom"  # <-- Corrected
+    DB_PASS = os.environ.get('DB_PASSWORD')  # <-- PUT YOUR DB PASSWORD IN .env FILE
+    DB_HOST = os.environ.get('DB_HOST')      # <-- PUT YOUR DB HOST FROM HOSTINGER (e.g., 127.0.0.1)
+    DB_NAME = "u136347904_ecom"  # <-- Corrected
+    
+    SQLALCHEMY_DATABASE_URI = f"mysql+pymysql://{DB_USER}:{DB_PASS}@{DB_HOST}/{DB_NAME}"
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+
     
     # Shopify Credentials
     SHOPIFY_TOKEN = os.environ.get('SHOPIFY_TOKEN')

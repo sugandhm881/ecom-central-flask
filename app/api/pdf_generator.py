@@ -32,18 +32,27 @@ class PDF(FPDF):
         self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
 
     def create_summary(self, adset_data, since, until):
+        # 1. Aggregate Totals
         total_spend = sum(adset.get('spend', 0) for adset in adset_data)
         total_orders = sum(adset.get('totalOrders', 0) for adset in adset_data)
-        # Use deliveredRevenue for total revenue in summary
         total_revenue = sum(adset.get('deliveredRevenue', 0) for adset in adset_data)
-        overall_roas = (total_revenue / total_spend) if total_spend > 0 else 0
-
-        # Compute overall RTO% including cancelled
+        
         total_delivered = sum(adset.get('deliveredOrders', 0) for adset in adset_data)
         total_rto = sum(adset.get('rtoOrders', 0) for adset in adset_data)
         total_cancelled = sum(adset.get('cancelledOrders', 0) for adset in adset_data)
+        total_in_transit = sum(adset.get('inTransitOrders', 0) for adset in adset_data)
+
+        # 2. Standard Metrics
+        overall_roas = (total_revenue / total_spend) if total_spend > 0 else 0
+        
         denom = total_delivered + total_rto + total_cancelled
         overall_rto_percent = ((total_rto + total_cancelled) / denom) if denom > 0 else 0
+
+        # 3. Effective ROAS Calculation
+        # Formula: (DeliveredRev + InTransit * (1-RTO%) * DeliveredAOV) / Spend
+        global_delivered_aov = (total_revenue / total_delivered) if total_delivered > 0 else 0
+        projected_revenue = total_revenue + (total_in_transit * (1 - overall_rto_percent) * global_delivered_aov)
+        overall_eff_roas = (projected_revenue / total_spend) if total_spend > 0 else 0
 
         # Header/title
         self.set_font('Helvetica', 'B', 12)
@@ -52,54 +61,55 @@ class PDF(FPDF):
         self.cell(0, 6, f'Date Range: {since} to {until}', 0, 1)
         self.ln(5)
 
-        # Summary box - 4 aligned columns:
-        # [Total Spend] [Total Orders] [Overall RTO%] [Overall ROAS]
+        # Summary box - 5 aligned columns:
+        # [Spend] [Orders] [RTO%] [ROAS] [Eff. ROAS]
         self.set_fill_color(245, 247, 250)
         box_x = 10
         box_y = self.get_y()
         box_w = 190
-        box_h = 34  # enough for label row + value row
+        box_h = 34  
         self.rect(box_x, box_y, box_w, box_h, 'F')
 
-        # Four equal columns
-        col_w = box_w / 4.0
+        # Five equal columns
+        col_w = box_w / 5.0
         label_h = 6
         value_h = 10
         padding_top = 3
 
-        # Labels row (light gray text)
+        # Labels row
         self.set_xy(box_x, box_y + padding_top)
         self.set_font('Helvetica', '', 9)
         self.set_text_color(80, 80, 80)
         self.cell(col_w, label_h, 'Total Spend', 0, 0, 'C')
         self.cell(col_w, label_h, 'Total Orders', 0, 0, 'C')
         self.cell(col_w, label_h, 'Overall RTO%', 0, 0, 'C')
-        self.cell(col_w, label_h, 'Overall ROAS', 0, 1, 'C')
+        self.cell(col_w, label_h, 'Overall ROAS', 0, 0, 'C')
+        self.cell(col_w, label_h, 'Eff. ROAS', 0, 1, 'C')
 
-        # Values row (bold, darker)
+        # Values row
         self.set_x(box_x)
         self.set_font('Helvetica', 'B', 10)
         self.set_text_color(0, 0, 0)
-        # total spend formatted with currency and no decimal places if large (consistent with table)
-        self.cell(col_w, value_h, f'Rs {total_spend:,.2f}', 0, 0, 'C')
+        self.cell(col_w, value_h, f'Rs {total_spend:,.0f}', 0, 0, 'C')
         self.cell(col_w, value_h, f'{total_orders}', 0, 0, 'C')
         self.cell(col_w, value_h, f'{overall_rto_percent:.1%}', 0, 0, 'C')
-        self.cell(col_w, value_h, f'{overall_roas:.2f}x', 0, 1, 'C')
+        self.cell(col_w, value_h, f'{overall_roas:.2f}x', 0, 0, 'C')
+        
+        # Highlight Eff ROAS in blue
+        self.set_text_color(67, 56, 202) 
+        self.cell(col_w, value_h, f'{overall_eff_roas:.2f}x', 0, 1, 'C')
 
-        # move below the box
         self.set_y(box_y + box_h + 6)
         self.set_text_color(0, 0, 0)
         self.ln(2)
 
     def create_table(self, adset_data):
         """
-        Keep original design and column order except:
-        - Shift deliveredRevenue to just after Spend and rename header to "Revenue"
-        - Fix grand total calculation (avoid double counting unattributed terms)
-        - Add a small signature block near the bottom of the page
+        Updated to include 'Eff. ROAS' column.
         """
-        col_widths = [50, 18, 12, 15, 10, 15, 15, 15, 12, 12, 15, 15]
-        headers = ["Ad Set / Source", "Spend", "Revenue", "Orders", "Delivered", "RTO", "Cancelled", "In-Transit", "Processing", "RTO%", "CPO", "ROAS"]
+        # Adjusted widths to fit 13 columns on A4 (approx 190 width avail)
+        col_widths = [45, 15, 15, 10, 12, 10, 10, 10, 10, 12, 10, 12, 15]
+        headers = ["Ad Set / Source", "Spend", "Revenue", "Orders", "Delivered", "RTO", "Cncl", "Int", "Prc", "RTO%", "CPO", "ROAS", "Eff.ROAS"]
 
         usable_width = self.w - self.l_margin - self.r_margin
         total_w = sum(col_widths)
@@ -112,7 +122,7 @@ class PDF(FPDF):
             rows_count += 1
             if adset.get('id') == 'unattributed':
                 rows_count += len(adset.get('terms', []))
-        rows_count += 1  # grand total row
+        rows_count += 1  # grand total
 
         header_font_size = 8
         body_font_size = 8
@@ -140,6 +150,7 @@ class PDF(FPDF):
         self.set_text_color(0, 0, 0)
         fill = False
 
+        # Calculate Grand Totals manually to ensure accuracy for Eff ROAS
         grand_totals = {key: 0 for key in ["spend", "totalOrders", "deliveredOrders", "rtoOrders", "cancelledOrders", "inTransitOrders", "processingOrders", "deliveredRevenue"]}
         for adset in adset_data:
             for key in grand_totals:
@@ -220,11 +231,18 @@ class PDF(FPDF):
         delivered = data.get('deliveredOrders', 0) or 0
         rto = data.get('rtoOrders', 0) or 0
         cancelled = data.get('cancelledOrders', 0) or 0
+        in_transit = data.get('inTransitOrders', 0) or 0
+        
         denom = delivered + rto + cancelled
         rto_rate = ((rto + cancelled) / denom) if denom > 0 else 0
 
         cpo = (spend / total_orders) if total_orders > 0 else 0
         roas = (delivered_revenue / spend) if spend > 0 else 0
+
+        # Eff. ROAS Calc (Row Level)
+        del_aov = (delivered_revenue / delivered) if delivered > 0 else 0
+        proj_revenue = delivered_revenue + (in_transit * (1 - rto_rate) * del_aov)
+        eff_roas = (proj_revenue / spend) if spend > 0 else 0
 
         self.set_fill_color(243, 244, 246)
         if is_total:
@@ -242,25 +260,33 @@ class PDF(FPDF):
         except Exception:
             self.set_font('Helvetica', font_style, 8)
 
+        # Draw Row Cells
         self.cell(widths[0], row_h, name, 1, 0, 'L' if indent or not is_total else 'C', fill=fill)
         self.cell(widths[1], row_h, f"{spend:,.0f}", 1, 0, 'R', fill=fill)
         self.cell(widths[2], row_h, f"{delivered_revenue:,.0f}", 1, 0, 'R', fill=fill)
         self.cell(widths[3], row_h, str(total_orders), 1, 0, 'C', fill=fill)
-        self.cell(widths[4], row_h, str(int(data.get('deliveredOrders', 0))), 1, 0, 'C', fill=fill)
-        self.cell(widths[5], row_h, str(int(data.get('rtoOrders', 0))), 1, 0, 'C', fill=fill)
-        self.cell(widths[6], row_h, str(int(data.get('cancelledOrders', 0))), 1, 0, 'C', fill=fill)
-        self.cell(widths[7], row_h, str(int(data.get('inTransitOrders', 0))), 1, 0, 'C', fill=fill)
+        self.cell(widths[4], row_h, str(int(delivered)), 1, 0, 'C', fill=fill)
+        self.cell(widths[5], row_h, str(int(rto)), 1, 0, 'C', fill=fill)
+        self.cell(widths[6], row_h, str(int(cancelled)), 1, 0, 'C', fill=fill)
+        self.cell(widths[7], row_h, str(int(in_transit)), 1, 0, 'C', fill=fill)
         self.cell(widths[8], row_h, str(int(data.get('processingOrders', 0))), 1, 0, 'C', fill=fill)
         self.cell(widths[9], row_h, f"{rto_rate:.1%}", 1, 0, 'C', fill=fill)
         self.cell(widths[10], row_h, f"{cpo:,.0f}", 1, 0, 'R', fill=fill)
 
+        # Color ROAS
         if not is_total:
             if roas >= 2.0:
                 self.set_text_color(0, 128, 0)
             elif roas < 1.0:
                 self.set_text_color(255, 0, 0)
+        self.cell(widths[11], row_h, f"{roas:.2f}x", 1, 0, 'C', fill=fill)
+        self.set_text_color(0, 0, 0)
 
-        self.cell(widths[11], row_h, f"{roas:.2f}x", 1, 1, 'C', fill=fill)
+        # Eff ROAS Column (Last)
+        # Highlight slightly for emphasis
+        if not is_total and eff_roas > 0:
+             self.set_text_color(67, 56, 202)
+        self.cell(widths[12], row_h, f"{eff_roas:.2f}x", 1, 1, 'C', fill=fill)
         self.set_text_color(0, 0, 0)
 
 def sanitize_string(text):

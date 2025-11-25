@@ -7,3 +7,5 @@ openpyxl
 pytz
 gunicorn
 python-amazon-sp-api==0.17.0
+Flask-SQLAlchemy
+PyMySQL

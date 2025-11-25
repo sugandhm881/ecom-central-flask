@@ -9,7 +9,21 @@ from datetime import datetime, timedelta
 import pytz
 import calendar
 
-# Ensure the app path is added if running cron_job.py from the root directory
+# -------------------------------------------------------
+# Logging Setup (UTF-8 Safe for Windows + Linux)
+def log(message):
+    """Print timestamped logs to the terminal (UTF-8 safe)."""
+    timestamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
+    safe_message = str(message).encode("utf-8", errors="ignore").decode("utf-8")
+    formatted = f"{timestamp} {safe_message}"
+    print(formatted)
+    sys.stdout.flush()  # ensures cron shows logs immediately
+
+log("=" * 60)
+log("Cron job started")
+
+# -------------------------------------------------------
+# Ensure app path is importable
 project_root = os.path.dirname(os.path.abspath(__file__))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
@@ -20,16 +34,15 @@ from app.api.pdf_generator import PDF
 
 
 def send_email_with_attachment(pdf_attachments, since, until):
-    """
-    pdf_attachments: list of tuples (filename, pdf_bytes)
-    """
+    """Send PDF reports via email using environment variables."""
     email_user = os.environ.get('EMAIL_USER')
     email_password = os.environ.get('EMAIL_PASSWORD')
     email_host = os.environ.get('EMAIL_HOST')
     email_port = int(os.environ.get('EMAIL_PORT', 587))
     recipient_email = os.environ.get('RECIPIENT_EMAIL')
+
     if not all([email_user, email_password, email_host, recipient_email]):
-        print("[EMAIL ERROR] Email configuration is missing from the .env file.")
+        log("[EMAIL ERROR] Missing environment variables (EMAIL_USER, EMAIL_PASSWORD, EMAIL_HOST, RECIPIENT_EMAIL)")
         return
 
     msg = MIMEMultipart()
@@ -38,71 +51,80 @@ def send_email_with_attachment(pdf_attachments, since, until):
     msg['Subject'] = f"Ad Set Performance Report: {since} to {until}"
     msg.attach(MIMEText(
         f"Attached are the ad set performance reports:\n\n"
-        f"1️⃣ Month-to-Date ({since} → {until})\n"
+        f"1️⃣ Month-to-Date ({since} to {until})\n"
         f"2️⃣ Last Month\n\n"
-        f"Regards,\nEcom Central", 'plain'))
+        f"Regards,\nEcom Central",
+        'plain'
+    ))
 
     for filename, pdf_data in pdf_attachments:
         part = MIMEBase('application', 'octet-stream')
         part.set_payload(pdf_data)
         encoders.encode_base64(part)
-        part.add_header('Content-Disposition', f'attachment; filename="{filename}"')
+        part.add_header('Content-Disposition', f'attachment; filename=\"{filename}\"')
         msg.attach(part)
 
     try:
-        print(f"Connecting to email server at {email_host}...")
+        log(f"Connecting to SMTP server: {email_host}:{email_port}")
         server = smtplib.SMTP(email_host, email_port)
         server.starttls()
         server.login(email_user, email_password)
         server.sendmail(email_user, recipient_email, msg.as_string())
         server.quit()
-        print(f"✅ Email sent successfully to {recipient_email}!")
+        log(f"✅ Email sent successfully to {recipient_email}")
     except Exception as e:
-        print(f"[EMAIL ERROR] Failed to send email: {e}")
+        log(f"[EMAIL ERROR] {e}")
 
 
 def generate_pdf(app, since_date, until_date, label):
+    """Generate PDF report for the given date range."""
     with app.app_context():
         adset_data = get_adset_performance_data(
             since_date,
             until_date,
             app.config,
-            date_filter_type='created_at'  # Use Shopify Order Date as default for cron
+            date_filter_type='created_at'
         )
+
         if not adset_data or not adset_data.get('adsetPerformance'):
-            print(f"No performance data for {label} ({since_date} to {until_date}). Skipping PDF.")
+            log(f"No adset data for {label} ({since_date} to {until_date})")
             return None
 
-        print(f"Generating {label} PDF...")
+        log(f"Generating {label} PDF...")
         pdf = PDF()
         pdf.add_page()
         pdf.create_summary(adset_data['adsetPerformance'], since_date, until_date)
         pdf.create_table(adset_data['adsetPerformance'])
-
-        pdf_output_bytes = bytes(pdf.output(dest='S'))
-        print(f"{label} PDF generated successfully ({len(pdf_output_bytes)} bytes).")
-        return pdf_output_bytes
+        pdf_bytes = pdf.output()
+        log(f"{label} PDF generated successfully ({len(pdf_bytes)} bytes)")
+        return pdf_bytes
 
 
 def generate_report():
+    """Generate and email all reports."""
+    start_time = datetime.now()
     app = create_app()
-    TZ_INDIA = pytz.timezone('Asia/Kolkata')
-    today_in_india = datetime.now(TZ_INDIA)
+    tz_india = pytz.timezone('Asia/Kolkata')
+    today = datetime.now(tz_india)
 
-    # Month-to-Date
-    since_mtd = today_in_india.replace(day=1).strftime('%Y-%m-%d')
-    until_mtd = today_in_india.strftime('%Y-%m-%d')
+    # Month-to-date
+    since_mtd = today.replace(day=1).strftime('%Y-%m-%d')
+    until_mtd = today.strftime('%Y-%m-%d')
 
-    # Last Month
-    first_day_last_month = (today_in_india.replace(day=1) - timedelta(days=1)).replace(day=1)
-    last_day_last_month = datetime(first_day_last_month.year, first_day_last_month.month,
-                                   calendar.monthrange(first_day_last_month.year, first_day_last_month.month)[1])
+    # Last month
+    first_day_last_month = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+    last_day_last_month = datetime(
+        first_day_last_month.year,
+        first_day_last_month.month,
+        calendar.monthrange(first_day_last_month.year, first_day_last_month.month)[1]
+    )
+
     since_last_month = first_day_last_month.strftime('%Y-%m-%d')
     until_last_month = last_day_last_month.strftime('%Y-%m-%d')
 
-    print(f"Generating reports for:")
-    print(f"  • Month-to-Date: {since_mtd} → {until_mtd}")
-    print(f"  • Last Month: {since_last_month} → {until_last_month}")
+    log("Generating reports for:")
+    log(f"  • Month-to-Date: {since_mtd} to {until_mtd}")
+    log(f"  • Last Month: {since_last_month} to {until_last_month}")
 
     attachments = []
 
@@ -117,7 +139,11 @@ def generate_report():
     if attachments:
         send_email_with_attachment(attachments, since_mtd, until_mtd)
     else:
-        print("[ERROR] No PDFs generated. No email sent.")
+        log("⚠️ No PDFs generated — skipping email")
+
+    duration = (datetime.now() - start_time).total_seconds()
+    log(f"Cron job completed successfully in {duration:.2f} seconds")
+    log("=" * 60)
 
 
 if __name__ == '__main__':

@@ -264,10 +264,11 @@ body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
 <div class="bg-white p-6 rounded-xl shadow-sm">
 <h2 class="text-xl font-semibold mb-4">Performance by Ad Set</h2>
 
-<div id="adsetSummaryCard" class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-4 mb-4 text-center bg-gray-800 text-white rounded-xl p-4 shadow-lg hidden">
+<div id="adsetSummaryCard" class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-4 mb-4 text-center bg-gray-800 text-white rounded-xl p-4 shadow-lg hidden">
     <div><p class="text-xs opacity-70">Total Spend</p><p id="totalSpend" class="text-lg font-bold">0</p></div>
     <div><p class="text-xs opacity-70">Delivered Revenue</p><p id="totalRevenue" class="text-lg font-bold">0</p></div>
     <div><p class="text-xs opacity-70">ROAS</p><p id="totalRoas" class="text-lg font-bold">0.00x</p></div>
+    <div><p class="text-xs opacity-70">Eff. ROAS</p><p id="totalEffRoas" class="text-lg font-bold">0.00x</p></div>
     <div><p class="text-xs opacity-70">Total Orders</p><p id="totalOrders" class="text-lg font-bold">0</p></div>
     <div><p class="text-xs opacity-70">Delivered</p><p id="totalDelivered" class="text-lg font-bold">0</p></div>
     <div><p class="text-xs opacity-70">RTO</p><p id="totalRTO" class="text-lg font-bold">0</p></div>
@@ -290,6 +291,7 @@ body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
     <th class="sortable cursor-pointer px-4 py-2 text-right" data-key="rtoPercent">RTO % ⬍</th>
     <th class="sortable cursor-pointer px-4 py-2 text-right" data-key="cpo">CPO (₹) ⬍</th>
     <th class="sortable cursor-pointer px-4 py-2 text-right" data-key="roas">ROAS ⬍</th>
+    <th class="sortable cursor-pointer px-4 py-2 text-right" data-key="effectiveRoas">Eff. ROAS ⬍</th>
 </tr>
 </thead>
 <tbody id="adset-performance-table-body"></tbody>
