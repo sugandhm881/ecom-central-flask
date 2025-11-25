@@ -14,6 +14,7 @@ amazon_cache.json.raw
 amazon_cache_date.txt
 amazon_cache.json
 daily_adset_report.json
+echo "amazon_cache_date.txt" >> .gitignore
 
 *.xlsx # Don't upload generated reports
 *.pdf # Don't upload generated reports
