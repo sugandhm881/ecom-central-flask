@@ -658,7 +658,6 @@ function renderAdsetPerformanceDashboard() {
     });
 }
 
-
 // ... (rest of your existing functions: renderAllDashboard, renderPlatformFilters, etc.)
 function renderAllDashboard(){const[s,e]=calculateDateRange(activeDatePreset,startDateFilterEl.value,endDateFilterEl.value);let o=[...allOrders];if(s&&e){o=o.filter(t=>{const d=new Date(t.date);return d>=s&&d<=e})}if(activePlatformFilter!=='All')o=o.filter(t=>t.platform===activePlatformFilter);if(activeStatusFilter!=='All')o=o.filter(t=>t.status===activeStatusFilter);const t=[...o].sort((a,b)=>new Date(b.date)-new Date(a.date));renderPlatformFilters();renderOrders(t);updateDashboardKpis(o)}
 function renderPlatformFilters(){platformFiltersEl.innerHTML=['All','Amazon','Shopify'].map(p=>`<button data-filter="${p}" class="filter-btn px-3 py-1 text-sm rounded-md ${activePlatformFilter===p?'active':''}">${p}</button>`).join('');platformFiltersEl.querySelectorAll('.filter-btn').forEach(b=>{b.addEventListener('click',()=>{activePlatformFilter=b.dataset.filter;renderAllDashboard()})})}
