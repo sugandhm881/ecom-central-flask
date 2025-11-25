@@ -4,12 +4,12 @@ __pycache__/
 *.tmp
 *.log
 *.cache
-*.json
 *.txt
 *.raw
 .env
 # Add any other specific files you don't want to upload
 amazon_orders_cache.json
+amazon_cache.json
 amazon_items_cache.json
 master_order_data.json
 rapidshyp_cache.json
