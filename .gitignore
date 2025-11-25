@@ -10,6 +10,10 @@ amazon_orders_cache.json
 amazon_items_cache.json
 master_order_data.json
 rapidshyp_cache.json
+amazon_cache.json.raw
+amazon_cache_date.txt
+amazon_cache.json
+daily_adset_report.json
 
 *.xlsx # Don't upload generated reports
 *.pdf # Don't upload generated reports
