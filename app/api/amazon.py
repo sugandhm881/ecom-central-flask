@@ -30,12 +30,12 @@ def get_fetch_period():
         f.write(today_str)
 
     if full_fetch:
-        ninety_days_ago = (datetime.utcnow() - timedelta(days=45)).isoformat() + 'Z'
+        forty_fivedays_ago = (datetime.utcnow() - timedelta(days=45)).isoformat() + 'Z'
     else:
         month_start = datetime.utcnow().replace(day=1)
-        ninety_days_ago = month_start.isoformat() + 'Z'
+        forty_fivedays_ago = month_start.isoformat() + 'Z'
 
-    return ninety_days_ago
+    return forty_fivedays_ago
 # ---------------- END ADD ----------------
 
 
@@ -63,7 +63,7 @@ def fetch_amazon_orders(config):
         print("[WARNING] Amazon SP-API credentials not set. Skipping Amazon orders.")
         return []
 
-    ninety_days_ago = get_fetch_period()
+    forty_fivedays_ago = get_fetch_period()
     all_amazon_orders_raw, next_token = [], None
     page = 1
     consecutive_quota_errors = 0
@@ -73,7 +73,7 @@ def fetch_amazon_orders(config):
             print(f"[Amazon API] Fetching page {page}...")
             query_params = {
                 'MarketplaceIds': config['MARKETPLACE_ID'],
-                'CreatedAfter': ninety_days_ago,
+                'CreatedAfter': forty_fivedays_ago,
                 'dataElements': 'buyerInfo,shippingAddress'
             }
             if next_token:
