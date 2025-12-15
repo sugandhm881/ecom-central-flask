@@ -37,6 +37,9 @@ class Config:
 
     # RapidShyp Credentials
     RAPIDSHYP_API_KEY = os.environ.get('RAPIDSHYP_API_KEY')
+
+    # Docpharma API KEY
+    DOCPHARMA_API_KEY = os.environ.get('DOCPHARMA_API_KEY')
     
     # App User Credentials (for login)
     APP_USER_EMAIL = os.environ.get('APP_USER_EMAIL')

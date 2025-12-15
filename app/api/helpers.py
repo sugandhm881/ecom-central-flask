@@ -19,6 +19,82 @@ rapidshyp_session = requests.Session()
 # Timezone
 TZ_INDIA = pytz.timezone('Asia/Kolkata')
 
+# --- DOCPHARMA API FUNCTIONS ---
+
+def fetch_docpharma_details(partner_order_no, config):
+    """
+    Fetches order details from DocPharma API.
+    Expects partner_order_no like 'TE25-6613' (without #).
+    """
+    url = "https://partner-api.docpharma.in/fetch-details"
+    
+    # Check if API key exists in config
+    api_key = config.get('DOCPHARMA_API_KEY')
+    if not api_key:
+        return None
+
+    headers = {
+        'x-api-key': api_key,
+        'Content-Type': 'application/json'
+    }
+    
+    # Ensure partner_order_no is treated as a string
+    if not partner_order_no:
+        return None
+
+    # Strip '#' if present (e.g. #TE25-6613 -> TE25-6613)
+    clean_id = str(partner_order_no).replace('#', '')
+
+    payload = json.dumps({
+        "partner_order_no": clean_id
+    })
+
+    try:
+        # Use a short timeout (3s) to prevent hanging the data fetcher
+        response = requests.post(url, headers=headers, data=payload, timeout=3)
+        if response.status_code == 200:
+            return response.json()
+    except Exception as e:
+        # Log error but don't crash the script
+        print(f"[DocPharma] Error fetching {clean_id}: {e}")
+    
+    return None
+
+def extract_docpharma_status_string(doc_data):
+    """
+    Parses the deep nested JSON from DocPharma to find the most accurate status string.
+    Priority: 
+    1. suborders[0].logistic_details.current_status (e.g. "RTO_DELIVERED")
+    2. suborders[0].status (e.g. "rto")
+    3. root status
+    """
+    if not doc_data:
+        return None
+
+    # 1. Try to get status from suborders -> logistic_details -> current_status
+    try:
+        suborders = doc_data.get('suborders', [])
+        if suborders and isinstance(suborders, list) and len(suborders) > 0:
+            # Check logistic_details
+            logistic_details = suborders[0].get('logistic_details', {})
+            current_status = logistic_details.get('current_status')
+            if current_status:
+                return str(current_status).upper()
+            
+            # Fallback: check status inside suborder dict
+            sub_status = suborders[0].get('status')
+            if sub_status:
+                return str(sub_status).upper()
+    except Exception:
+        pass
+
+    # 2. Fallback to root level 'status'
+    root_status = doc_data.get('status')
+    if root_status:
+        return str(root_status).upper()
+    
+    return None
+
 # --- AMAZON SP-API FUNCTIONS ---
 def get_lwa_access_token(config):
     now = time.time()
@@ -87,15 +163,35 @@ def make_signed_api_request(config, options, max_retries=5):
 # --- RAPIDSHYP CACHE ---
 CACHE_FILE = 'rapidshyp_cache.json'
 
-def load_cache():
+def load_cache(key=None):
     if os.path.exists(CACHE_FILE):
         try:
-            with open(CACHE_FILE, 'r') as f: return json.load(f)
+            with open(CACHE_FILE, 'r') as f: 
+                data = json.load(f)
+                if key: return data.get(key)
+                return data
         except (json.JSONDecodeError, FileNotFoundError): return {}
     return {}
 
-def save_cache(cache):
-    with open(CACHE_FILE, 'w') as f: json.dump(cache, f, indent=2)
+def save_cache(key_or_data, data=None, duration=300):
+    """
+    Fixed save_cache to handle both (key, value) and (full_dict) signatures.
+    """
+    full_cache = load_cache()
+    if full_cache is None: full_cache = {}
+    
+    # Check if user passed the entire cache dict as the first argument
+    if data is None and isinstance(key_or_data, dict):
+        full_cache = key_or_data
+    else:
+        # Standard key-value update
+        full_cache[key_or_data] = data
+        
+    try:
+        with open(CACHE_FILE, 'w') as f: 
+            json.dump(full_cache, f, indent=2)
+    except Exception as e:
+        print(f"Error saving cache: {e}")
 
 # --- SHOPIFY FUNCTIONS ---
 def get_all_shopify_orders_paginated(config, params):
@@ -117,15 +213,18 @@ def get_all_shopify_orders_paginated(config, params):
     print(f"[Shopify] Total orders fetched: {len(all_orders)}")
     return all_orders
 
-# --- RAPIDSHYP FUNCTIONS (NOW WITH RETRY LOGIC) ---
+# --- RAPIDSHYP FUNCTIONS (WITH DOCPHARMA FALLBACK) ---
 def get_raw_rapidshyp_status(awb, cache, config):
-    """Fetch current RapidShyp status for an AWB with retry logic."""
+    """
+    Fetch current status for an AWB.
+    If RapidShyp returns 400 (Bad Request), fallback to returning None.
+    """
     now = time.time()
     if awb in cache:
         entry = cache[awb]
         if isinstance(entry, dict):
             cached_status, last_checked = entry.get('raw_status', entry.get('status')), entry.get('timestamp', 0)
-            if any(s in (cached_status or '').upper() for s in ['DELIVERED', 'RTO']) or (now - last_checked) < 3600:
+            if any(s in (cached_status or '').upper() for s in ['DELIVERED', 'RTO', 'RTO_DELIVERED']) or (now - last_checked) < 3600:
                 return cached_status
 
     url = "https://api.rapidshyp.com/rapidshyp/apis/v1/track_order"
@@ -135,6 +234,13 @@ def get_raw_rapidshyp_status(awb, cache, config):
     for attempt in range(3): # Try up to 3 times
         try:
             res = rapidshyp_session.post(url, headers=headers, json={'awb': awb}, timeout=10)
+            
+            # --- HANDLE 400 GRACEFULLY ---
+            if res.status_code == 400:
+                # 400 likely means AWB doesn't exist in RapidShyp. 
+                # Return None so data_fetcher can try DocPharma with Order ID.
+                return None
+
             if res.status_code == 429:
                 wait_time = (2 ** attempt) + random.random()
                 print(f"[RATE LIMIT] Waiting for {wait_time:.2f}s for AWB {awb}")
@@ -145,13 +251,10 @@ def get_raw_rapidshyp_status(awb, cache, config):
             data = res.json()
             if data.get('success') and data.get('records'):
                 shipment = data['records'][0].get('shipment_details', [{}])[0]
-                # --- THIS IS THE FIX ---
-                # Prioritize the specific shipment_status if available
                 raw_status = shipment.get('shipment_status') or \
                              shipment.get('current_tracking_status_desc') or \
                              shipment.get('current_tracking_status') or \
                              'Status Not Available'
-                # --- END OF FIX ---
                 cache[awb] = {'raw_status': raw_status, 'timestamp': now}
                 return raw_status
         except requests.exceptions.RequestException as e:
@@ -164,7 +267,10 @@ def get_raw_rapidshyp_status(awb, cache, config):
 
 
 def get_rapidshyp_timeline(awb, config):
-    """Fetch full RapidShyp event timeline for an AWB with retry logic."""
+    """
+    Fetch full event timeline.
+    If RapidShyp returns 400, fallback to DocPharma.
+    """
     url = "https://api.rapidshyp.com/rapidshyp/apis/v1/track_order"
     headers = {"rapidshyp-token": config.get('RAPIDSHYP_API_KEY'), "Content-Type": "application/json"}
     if not headers["rapidshyp-token"]: 
@@ -173,6 +279,12 @@ def get_rapidshyp_timeline(awb, config):
     for attempt in range(3): # Try up to 3 times
         try:
             res = rapidshyp_session.post(url, headers=headers, json={'awb': awb}, timeout=10)
+            
+            # --- HANDLE 400 GRACEFULLY (Check DocPharma) ---
+            if res.status_code == 400:
+                # Can't fetch details without Order ID here, return empty
+                return []
+
             if res.status_code == 429:
                 wait_time = (2 ** attempt) + random.random()
                 print(f"[RATE LIMIT] Waiting for {wait_time:.2f}s for AWB timeline {awb}")
@@ -217,81 +329,71 @@ def has_rto_initiated(order):
         order.get('rapidshyp_rto_date')
     )
 
-def normalize_status(order, raw_status):
+def normalize_status(order, raw_status, docpharma_data=None):
     """
-    Normalize order status based on webhook, RapidShyp, and Shopify data.
+    Normalize order status based on DocPharma, webhook, RapidShyp, and Shopify data.
+    DocPharma is prioritized if data is provided.
+    
+    FIX: Prioritizes Fresh API 'Delivered' over stale Webhooks.
     """
+    # Clean up raw_status
+    status_upper = (raw_status or '').upper()
+
+    # 1. Check DocPharma Status (Highest Priority if data exists)
+    if docpharma_data:
+        # Use our new helper to find the most accurate status (e.g. RTO_DELIVERED)
+        ds = extract_docpharma_status_string(docpharma_data)
+        
+        if ds:
+            ds = ds.upper()
+            if 'RTO_DELIVERED' in ds or ('RTO' in ds and 'DELIVERED' in ds): return 'RTO'
+            if 'DELIVERED' in ds: return 'Delivered'
+            if 'RTO' in ds: return 'RTO'
+            if 'CANCEL' in ds: return 'Cancelled'
+            if 'TRANSIT' in ds or 'SHIPPED' in ds or 'DISPATCHED' in ds: return 'In-Transit'
+            if 'PROCESSING' in ds or 'BOOKED' in ds: return 'Processing'
+
     if order.get('cancelled_at'): 
         return 'Cancelled'
 
-    # --- NEW: Prioritize accurate webhook status ---
+    # 2. CRITICAL FIX: Check Fresh API "DELIVERED" Status First
+    # If the fresh API fetch says Delivered, we trust it immediately, 
+    # overriding any stale "In-Transit" webhook status.
+    if "DELIVERED" in status_upper and "RTO" not in status_upper and "UNDELIVERED" not in status_upper:
+        return 'Delivered'
+
+    # 3. Check Accurate Webhook Status (Secondary Priority)
     webhook_status = order.get('rapidshyp_webhook_status')
     if webhook_status:
-        status_upper = webhook_status.upper()
-        if 'RTO_DELIVERED' in status_upper or 'RTO' in status_upper:
-            return 'RTO'
-        if 'DELIVERED' in status_upper:
-            return 'Delivered'
-        if 'TRANSIT' in status_upper or 'OFD' in status_upper:
-            return 'In-Transit'
-        if 'CANCELLED' in status_upper:
-            return 'Cancelled'
-        if 'UNDELIVERED' in status_upper:
-            return 'Exception' # Treat undelivered as an exception to be reviewed
-
-        # ----- NEW CHECK: Handle exact shipment status terms -----
-        # Check for the exact terms you provided
-        if any(term in status_upper for term in ['IN_TRANSIT', 'SHIPPED', 'OUT_FOR_DELIVERY']):
-            return 'In-Transit'
-        if 'EXCEPTION' in status_upper:
-            return 'Exception'
-        # ----- end new checks -----
-
-        # Fallthrough to 'Processing' for other statuses like PICKED_UP, BOOKED, etc.
+        w_status_upper = webhook_status.upper()
+        if 'RTO_DELIVERED' in w_status_upper or 'RTO' in w_status_upper: return 'RTO'
+        if 'DELIVERED' in w_status_upper: return 'Delivered'
+        if 'TRANSIT' in w_status_upper or 'OFD' in w_status_upper: return 'In-Transit'
+        if 'CANCELLED' in w_status_upper: return 'Cancelled'
+        if 'UNDELIVERED' in w_status_upper: return 'Exception'
+        if any(term in w_status_upper for term in ['IN_TRANSIT', 'SHIPPED', 'OUT_FOR_DELIVERY']): return 'In-Transit'
+        if 'EXCEPTION' in w_status_upper: return 'Exception'
         return 'Processing'
 
-    # --- Fallback to existing logic if no webhook status is present ---
+    # 4. Fallback to existing logic using raw_status (RapidShyp)
     if not raw_status or raw_status in ["API Error or Timeout", "Status Not Available", "(blank)"]:
-        if order.get('fulfillment_status') == 'fulfilled': 
-            return 'Delivered'
-        elif order.get('fulfillments'): 
-            return 'Processing'
-        else: 
-            return 'Unfulfilled'
+        if order.get('fulfillment_status') == 'fulfilled': return 'Delivered'
+        elif order.get('fulfillments'): return 'Processing'
+        else: return 'Unfulfilled'
     
-    status_upper = raw_status.upper()
     rto_initiated = has_rto_initiated(order)
     
-    if "UNDELIVERED" in status_upper:
-        return 'RTO' if rto_initiated else 'In-Transit'
-    
-    if any(s in status_upper for s in ["RTO", "RETURN TO ORIGIN", "RETURN INITIATED", "RETURNED"]):
-        return 'RTO'
-    
-    if "DELIVERED" in status_upper: 
-        return 'Delivered'
-    
-    # Handle the exact terms you provided
-    if any(s in status_upper for s in ["IN_TRANSIT", "SHIPPED", "OUT_FOR_DELIVERY", "OUT FOR DELIVERY", "IN TRANSIT"]): 
-        return 'In-Transit'
-    
-    if "EXCEPTION" in status_upper: 
-        return 'Exception'
-    
-    if any(s in status_upper for s in ["DELIVERY DELAYED", "REACHED AT DESTINATION", "PICKUP COMPLETED"]): 
-        return 'In-Transit'
-    
-    if any(s in status_upper for s in ["LOST", "MISROUTED"]): 
-        return 'Exception'
-    
-    if any(s in status_upper for s in ["NA", "PICK UP EXCEPTION", "PICKUP CANCELLED"]): 
-        return 'Cancelled'
-    
-    if any(s in status_upper for s in ["SHIPMENT BOOKED", "OUT FOR PICKUP", "PICKUP SCHEDULED", "CREATED", "READY TO SHIP", "READY"]): 
-        return 'Processing'
-    
-    if order.get('fulfillments'): 
-        return 'Processing'
+    if "UNDELIVERED" in status_upper: return 'RTO' if rto_initiated else 'In-Transit'
+    if any(s in status_upper for s in ["RTO", "RETURN TO ORIGIN", "RETURN INITIATED", "RETURNED"]): return 'RTO'
+    # 'Delivered' is already caught in Step 2, but leaving it here for completeness
+    if "DELIVERED" in status_upper: return 'Delivered'
+    if any(s in status_upper for s in ["IN_TRANSIT", "SHIPPED", "OUT_FOR_DELIVERY", "OUT FOR DELIVERY", "IN TRANSIT"]): return 'In-Transit'
+    if "EXCEPTION" in status_upper: return 'Exception'
+    if any(s in status_upper for s in ["DELIVERY DELAYED", "REACHED AT DESTINATION", "PICKUP COMPLETED"]): return 'In-Transit'
+    if any(s in status_upper for s in ["LOST", "MISROUTED"]): return 'Exception'
+    if any(s in status_upper for s in ["NA", "PICK UP EXCEPTION", "PICKUP CANCELLED"]): return 'Cancelled'
+    if any(s in status_upper for s in ["SHIPMENT BOOKED", "OUT FOR PICKUP", "PICKUP SCHEDULED", "CREATED", "READY TO SHIP", "READY"]): return 'Processing'
+    if order.get('fulfillments'): return 'Processing'
     
     return 'Unfulfilled'
 
@@ -316,8 +418,14 @@ def get_rapidshyp_details(awb, config):
     if not headers["rapidshyp-token"]:
         return {"events": [], "rto_awb": None, "raw_status": None}
     try:
-        # --- MODIFIED: Use the session object ---
         res = rapidshyp_session.post(url, headers=headers, json={'awb': awb}, timeout=12)
+        
+        # --- HANDLE 400 GRACEFULLY (Check DocPharma) ---
+        if res.status_code == 400:
+            # Note: We can't fetch detailed DocPharma info here easily without Order ID.
+            # Returning empty allows data_fetcher loop to handle it correctly.
+            return {"events": [], "rto_awb": None, "raw_status": None}
+
         res.raise_for_status()
         data = res.json()
         if not (data.get('success') and data.get('records')):

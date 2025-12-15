@@ -9,7 +9,16 @@ import traceback
 from urllib.parse import urlparse
 import pytz
 
-from .helpers import get_all_shopify_orders_paginated, get_facebook_ads, get_order_source_term, load_cache, save_cache, get_raw_rapidshyp_status, normalize_status, pick_date_for_filter
+from .helpers import (
+    get_all_shopify_orders_paginated, 
+    get_facebook_ads, 
+    get_order_source_term, 
+    load_cache, 
+    save_cache, 
+    get_raw_rapidshyp_status, 
+    normalize_status, 
+    pick_date_for_filter
+)
 
 adset_performance_bp = Blueprint('adset_performance', __name__)
 MASTER_DATA_FILE = 'master_order_data.json'
@@ -24,7 +33,6 @@ def load_master_orders_utf8_safe(path):
         with open(path, 'r', encoding='utf-8') as f:
             return json.load(f)
     except UnicodeDecodeError as e:
-        # Fallback: tolerate bad bytes to keep the API alive
         print(f"[WARN] UTF-8 decode failed for {path} at position {e.start}: {e.reason}")
         print("[WARN] Retrying with errors='replace'. Consider regenerating the file by running data_fetcher.py")
         with open(path, 'r', encoding='utf-8', errors='replace') as f:
@@ -39,7 +47,7 @@ def create_empty_bucket(bucket_id, name, spend=0):
         'totalOrders': 0,
         'revenue': 0,
         'deliveredOrders': 0,
-        'deliveredRevenue': 0,  # Added deliveredRevenue initialization
+        'deliveredRevenue': 0,
         'rtoOrders': 0,
         'cancelledOrders': 0,
         'inTransitOrders': 0,
@@ -52,8 +60,10 @@ def create_empty_bucket(bucket_id, name, spend=0):
 def process_order_into_bucket(order, bucket, status, adset_id=None, adset_revenue_acc=None):
     bucket['totalOrders'] += 1
     order_revenue = float(order.get('total_price', 0))
+    
     if status not in ['Cancelled', 'RTO']:
         bucket['revenue'] += order_revenue
+    
     if status == 'Delivered':
         bucket['deliveredOrders'] += 1
         bucket['deliveredRevenue'] = bucket.get('deliveredRevenue', 0) + order_revenue
@@ -74,7 +84,7 @@ def process_order_into_bucket(order, bucket, status, adset_id=None, adset_revenu
 def get_adset_performance_data(since, until, config, date_filter_type):
     """
     Core logic to compute adset performance data.
-    Now requires 'date_filter_type' to be passed in.
+    This reads strictly from master_order_data.json to ensure speed.
     """
     start_date = datetime.strptime(since, '%Y-%m-%d').date()
     end_date = datetime.strptime(until, '%Y-%m-%d').date()
@@ -90,6 +100,7 @@ def get_adset_performance_data(since, until, config, date_filter_type):
         if filter_date and start_date <= filter_date <= end_date:
             shopify_orders_in_range.append(o)
 
+    # Get Facebook Ads Data
     fb_ads = get_facebook_ads(config, since, until)
 
     performance_data, fb_ad_map = {}, {ad['ad_id']: ad for ad in fb_ads}
@@ -106,10 +117,21 @@ def get_adset_performance_data(since, until, config, date_filter_type):
     for order in shopify_orders_in_range:
         source, term = get_order_source_term(order)
         raw_status = order.get('raw_rapidshyp_status')
-        status = normalize_status(order, raw_status)
+        
+        # --- FAST MODE WITH STORED DOCPHARMA DATA ---
+        # 1. Retrieve any saved DocPharma data from the JSON file
+        # (This avoids making a slow live API call)
+        docpharma_data = order.get('docpharma_data')
+        
+        # 2. Pass it to normalize_status. 
+        # The helper will use extract_docpharma_status_string to parse the "suborders" 
+        # and "logistic_details" to find the precise status (e.g. "RTO_DELIVERED").
+        status = normalize_status(order, raw_status, docpharma_data)
+        # -----------------
         
         adset_bucket, term_bucket = None, None
         adset_id_for_revenue = None
+        
         if source == 'facebook_ad':
             matched_ad = fb_ad_map.get(term)
             if matched_ad:
@@ -117,6 +139,7 @@ def get_adset_performance_data(since, until, config, date_filter_type):
                 adset_id_for_revenue = matched_ad['adset_id']
                 if adset_bucket:
                     term_bucket = adset_bucket['terms'].get(matched_ad['ad_id'])
+        
         if not term_bucket:
             adset_bucket = performance_data[UNATTRIBUTED_ID]
             adset_id_for_revenue = UNATTRIBUTED_ID
@@ -131,7 +154,7 @@ def get_adset_performance_data(since, until, config, date_filter_type):
     result = []
     for adset_id, adset in performance_data.items():
         adset['spend'] = sum(term.get('spend', 0) for term in adset.get('terms', {}).values())
-        adset['deliveredRevenue'] = sum(term.get('deliveredRevenue', 0) for term in adset.get('terms', {}).values())  # Aggregate deliveredRevenue from terms
+        adset['deliveredRevenue'] = sum(term.get('deliveredRevenue', 0) for term in adset.get('terms', {}).values())
         if adset.get('totalOrders', 0) > 0 or adset['spend'] > 0:
             adset['terms'] = sorted(
                 [t for t in adset['terms'].values() if t['totalOrders'] > 0 or t['spend'] > 0],
@@ -152,7 +175,7 @@ def get_adset_performance_route():
     try:
         since = request.args.get('since')
         until = request.args.get('until')
-        date_filter_type = request.args.get('date_filter_type', 'created_at')  # Get the filter type
+        date_filter_type = request.args.get('date_filter_type', 'created_at')
         if not since or not until:
             return jsonify({"error": "A 'since' and 'until' date range is required."}), 400
             
