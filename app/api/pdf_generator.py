@@ -181,6 +181,7 @@ class PDF(FPDF):
         self.draw_row(grand_totals_row, col_widths, fill=True, is_total=True, row_h=row_height, font_size=body_font_size + 1)
 
         try:
+            self.ln(10)
             self._draw_signature_block()
         except Exception:
             pass
@@ -191,37 +192,42 @@ class PDF(FPDF):
             'app/static/assets/image.png',
             'image.png'
         ]
-        sig_path = None
-        for p in candidate_paths:
-            if os.path.exists(p):
-                sig_path = p
-                break
+        sig_path = next((p for p in candidate_paths if os.path.exists(p)), None)
 
-        if not sig_path:
-            return
-
-        img_w = 36
-        spacing = 2
-        bottom_margin = self.b_margin + 6
-        approx_img_h = img_w * 0.35
+        # Define dimensions
+        img_w = 40
         text_h = 6
-        total_block_h = text_h + spacing + approx_img_h
-        x_img = self.w - self.r_margin - img_w
-        y_top = self.h - bottom_margin - total_block_h
+        spacing = 2
+        approx_img_h = 15  # Estimated height of signature image
+        total_block_h = text_h + spacing + approx_img_h + 10 # Total height needed
+
+        # --- DYNAMIC SPACE CHECK ---
+        # If current Y + needed height exceeds page limit, add a new page
+        if self.get_y() + total_block_h > (self.h - self.b_margin):
+            self.add_page()
+        
+        # Now we use the current Y position instead of a fixed bottom position
+        current_y = self.get_y()
+        # Align to the right side of the page
+        x_pos = self.w - self.r_margin - img_w - 10 
 
         try:
-            self.set_xy(x_img, y_top)
-            try:
-                self.set_font('Helvetica', 'BI', 9)
-            except Exception:
-                self.set_font('Helvetica', 'B', 9)
+            self.set_xy(x_pos, current_y)
+            self.set_font('Helvetica', 'B', 9)
             self.set_text_color(34, 44, 67)
             self.cell(img_w, text_h, 'Created By', 0, 1, 'C')
-            img_y = y_top + text_h + spacing
-            self.image(sig_path, x=x_img, y=img_y, w=img_w)
+            
+            if sig_path:
+                # Place image directly under the text
+                self.image(sig_path, x=x_pos, y=self.get_y() + spacing, w=img_w)
+            else:
+                # Fallback: Draw a line if image is missing
+                self.ln(spacing)
+                self.line(x_pos, self.get_y() + 10, x_pos + img_w, self.get_y() + 10)
+                
             self.set_text_color(0, 0, 0)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Signature Error: {e}")
 
     def draw_row(self, data, widths, fill, row_h=10, font_size=8, is_total=False, indent=False):
         total_orders = data.get('totalOrders', 0)

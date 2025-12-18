@@ -18,4 +18,4 @@ rapidshyp_cache.json
 *.pdf # Don't upload generated reports
 echo "output/docpharma_responses.json" >> .gitignore
 echo "output/docpharma_responses.xlsx" >> .gitignore
-echo "test_docpharma.py" >> .gitignore
+echo "test_docpharma.py" >> .gitignore  

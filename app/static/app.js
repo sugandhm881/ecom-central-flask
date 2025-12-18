@@ -500,9 +500,10 @@ function updateAdsetSummary(data) {
       acc.rto += parseInt(item.rtoOrders) || 0;
       acc.cancelled += parseInt(item.cancelledOrders) || 0;
       acc.inTransit += parseInt(item.inTransitOrders) || 0; // <--- ADDED THIS
+      acc.processing += parseInt(item.processingOrders) || 0;
       return acc;
     },
-    { spend: 0, totalOrders: 0, delivered: 0, deliveredRevenue: 0, rto: 0, cancelled: 0, inTransit: 0 }
+    { spend: 0, totalOrders: 0, delivered: 0, deliveredRevenue: 0, rto: 0, cancelled: 0, inTransit: 0, processing: 0}
   );
 
   // --- Standard Metrics ---
@@ -517,7 +518,9 @@ function updateAdsetSummary(data) {
   const globalRtoRate = totalDenom > 0 ? (totals.rto + totals.cancelled) / totalDenom : 0;
   
   // 3. Calculate Projected Revenue from In-Transit
-  const projectedInTransitRevenue = totals.inTransit * (1 - globalRtoRate) * globalDeliveredAov;
+  const totalPipelineOrders =(totals.inTransit || 0) + (totals.processing || 0);
+  const projectedInTransitRevenue =totalPipelineOrders * (1 - globalRtoRate) * globalDeliveredAov;
+
   
   // 4. Final Calculation
   const projectedTotalRevenue = totals.deliveredRevenue + projectedInTransitRevenue;
@@ -589,8 +592,8 @@ function renderAdsetPerformanceDashboard() {
 
         // --- 🧮 Calculate Effective ROAS (Row Level) ---
         const deliveredAov = adset.deliveredOrders > 0 ? adset.deliveredRevenue / adset.deliveredOrders : 0;
-        const inTransit = adset.inTransitOrders || 0;
-        const projectedRev = adset.deliveredRevenue + (inTransit * (1 - o) * deliveredAov);
+        const pipelineOrders =(adset.inTransitOrders || 0)+(adset.processingOrders || 0);
+        const projectedRev =adset.deliveredRevenue+(pipelineOrders * (1 - o) * deliveredAov);
         const effRoas = spend > 0 ? projectedRev / spend : 0;
         adset.effectiveRoas = effRoas; // Store for PDF/Sorting
 
@@ -622,8 +625,8 @@ function renderAdsetPerformanceDashboard() {
 
             // --- 🧮 Term Level Eff ROAS ---
             const delAovTerm = term.deliveredOrders > 0 ? term.deliveredRevenue / term.deliveredOrders : 0;
-            const inTransitTerm = term.inTransitOrders || 0;
-            const projRevTerm = term.deliveredRevenue + (inTransitTerm * (1 - oTerm) * delAovTerm);
+            const pipelineOrdersTerm =(term.inTransitOrders || 0)+(term.processingOrders || 0);
+            const projRevTerm =term.deliveredRevenue+(pipelineOrdersTerm * (1 - oTerm) * delAovTerm);
             const effRoasTerm = spendTerm > 0 ? projRevTerm / spendTerm : 0;
 
             adsetRow += `
