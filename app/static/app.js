@@ -1511,3 +1511,4 @@ document.addEventListener('DOMContentLoaded', () => {
         prefillLoginDetails();
     }
 });
+
