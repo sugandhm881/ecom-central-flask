@@ -5,30 +5,45 @@ let adsetPerformanceData = [];
 let selectedOrderId = null;
 let currentView = 'orders-dashboard';
 let activePlatformFilter = 'All';
+let activeSourceFilter = 'All';
 let insightsPlatformFilter = 'All';
 let activeStatusFilter = 'All';
 let activeDatePreset = 'today';
 let insightsDatePreset = 'last_7_days';
 let adPerformanceDatePreset = 'last_7_days';
 let adsetDatePreset = 'last_7_days';
+let profitDatePreset = 'last_7_days';
+let returnsDatePreset = 'last_month';
 let authToken = null;
-let currentSortKey = null; // For Adset sorting
-let currentSortOrder = "asc"; // For Adset sorting
+let currentSortKey = null;
+let currentSortOrder = "asc";
+let adRankingChartInstance = null;
+let profitChartInstance = null;
+let customerSegmentChartInstance = null;
+let rtoProductChartInstance = null;
 
 // --- DOM ELEMENTS ---
 let loginView, appView, logoutBtn, notificationEl, notificationMessageEl;
 let loginBtn, loginEmailEl, loginPasswordEl;
-let navOrdersDashboard, navOrderInsights, navAdPerformance, navAdsetBreakdown, navSettings;
-let ordersDashboardView, orderInsightsView, adPerformanceView, adsetBreakdownView, settingsView;
+let navOrdersDashboard, navOrderInsights, navAdRanking, navAdsetBreakdown, navAdAnalysis, navSettings, navProfitability, navCustomerSegments, navReturnsAnalysis;
+let ordersDashboardView, orderInsightsView, adRankingView, adsetBreakdownView, adAnalysisView, settingsView, profitabilityView, customerSegmentsView, returnsAnalysisView;
 let ordersListEl, statusFilterEl, orderDatePresetFilter, customDateContainer, startDateFilterEl, endDateFilterEl, platformFiltersEl,
     dashboardKpiElements, insightsKpiElements, revenueChartCanvas, platformChartCanvas, paymentChartCanvas,
     insightsDatePresetFilter, insightsCustomDateContainer, insightsStartDateFilterEl, insightsEndDateFilterEl,
     insightsPlatformFiltersEl,
-    orderModal, modalBackdrop, modalContent, modalCloseBtn;
-let adDatePresetFilter, adCustomDateContainer, adStartDateFilterEl, adEndDateFilterEl, performanceTableBody, adKpiElements, spendRevenueChartCanvas, orderStatusChartCanvas;
-let adsetDatePresetFilter, adsetCustomDateContainer, adsetStartDateFilterEl, adsetEndDateFilterEl, adsetPerformanceTableBody, downloadPdfBtn, downloadExcelBtn, adsetDateFilterTypeEl;
+    globalLoader; 
+let adsetPerformanceTableBody, downloadPdfBtn, downloadExcelBtn, adsetDateFilterTypeEl;
+let rankingDatePresetFilter, adRankingChartCanvas, adRankingListEl;
+let adsetDatePresetFilter, adsetCustomDateContainer, adsetStartDateFilterEl, adsetEndDateFilterEl; 
+let profitDatePresetFilter, profitCustomDateContainer, profitStartDateFilterEl, profitEndDateFilterEl, profitTrendChartCanvas; 
+let returnsDatePresetFilter, returnsCustomDateContainer, returnsStartDateFilterEl, returnsEndDateFilterEl; 
+let customerSegmentChartCanvas, vipCustomerListEl, rtoProductChartCanvas, rtoCityListEl, customerLimitFilter; 
+let adAnalysisTableBody, adAnalysisPaymentFilter;
 
-let revenueChartInstance, platformChartInstance, paymentChartInstance, spendRevenueChartInstance, orderStatusChartInstance;
+// New Filter Elements
+let sourceFilterEl;
+
+let revenueChartInstance, platformChartInstance, paymentChartInstance;
 
 // --- STATIC DATA ---
 let connections = [
@@ -46,79 +61,76 @@ const platformLogos = {
 function showNotification(message, isError = false) {
     if (notificationMessageEl) {
         notificationMessageEl.textContent = message;
-        notificationEl.className = `fixed top-5 right-5 z-50 text-white py-3 px-5 rounded-lg shadow-xl ${isError ? 'bg-red-500' : 'bg-slate-900'}`;
-        notificationEl.classList.add('show');
-        setTimeout(() => { notificationEl.classList.remove('show'); }, 3000);
+        notificationEl.className = `fixed top-6 right-6 z-50 transform transition-all duration-300 ${isError ? 'bg-rose-600' : 'bg-slate-800'} text-white py-3 px-6 rounded-lg shadow-xl flex items-center gap-3 border border-white/10 cursor-pointer`;
+        notificationEl.classList.remove('hidden', 'translate-y-[-150%]', 'opacity-0');
+        setTimeout(() => {
+            notificationEl.classList.add('translate-y-[-150%]', 'opacity-0');
+            setTimeout(() => { notificationEl.classList.add('hidden'); }, 300);
+        }, 3000);
     }
 }
+
+function showLoader() { if(globalLoader) globalLoader.classList.add('active'); }
+function hideLoader() { if(globalLoader) globalLoader.classList.remove('active'); }
+
 const formatCurrency = (amount) => {
   const value = Math.round(parseFloat(amount) || 0);
   return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
+    style: 'currency', currency: 'INR', minimumFractionDigits: 0, maximumFractionDigits: 0
   }).format(value);
 };
 const formatNumber = (num) => new Intl.NumberFormat('en-IN').format(num);
 const formatPercent = (num) => isFinite(num) ? `${(num * 100).toFixed(1)}%` : '0.0%';
+
 function getStatusBadge(status) {
     switch (status) {
-        case 'New': return 'bg-blue-100 text-blue-800';
-        case 'Processing': return 'bg-yellow-100 text-yellow-800';
-        case 'Shipped': return 'bg-green-100 text-green-800';
-        case 'Cancelled': return 'bg-slate-200 text-slate-600';
-        default: return 'bg-slate-100 text-slate-800';
+        case 'New': return 'bg-blue-50 text-blue-700 border border-blue-200';
+        case 'Processing': return 'bg-amber-50 text-amber-700 border border-amber-200';
+        case 'Shipped': return 'bg-indigo-50 text-indigo-700 border border-indigo-200';
+        case 'Delivered': return 'bg-emerald-50 text-emerald-700 border border-emerald-200';
+        case 'Cancelled': return 'bg-slate-100 text-slate-600 border border-slate-200';
+        case 'RTO': return 'bg-rose-50 text-rose-700 border border-rose-200';
+        default: return 'bg-slate-50 text-slate-700 border border-slate-200';
     }
 }
 function createFallbackImage(itemName) {
     const initials = (itemName || 'N/A').split(' ').map(word => word[0]).join('').substring(0, 2).toUpperCase();
-    return `https://placehold.co/100x100/e2e8f0/64748b?text=${initials}`;
+    return `https://placehold.co/100x100/f1f5f9/94a3b8?text=${initials}`;
 }
 
-// --- AUTHENTICATION FUNCTIONS ---
-async function prefillLoginDetails() {
+// --- AUTHENTICATION ---
+async function prefillLoginDetails() { 
     try {
         const response = await fetch('/api/get-login-details');
         if (response.ok) {
             const data = await response.json();
-            if (loginEmailEl && data.email) {
-                loginEmailEl.value = data.email;
-            }
-            if (loginPasswordEl && data.password) {
-                loginPasswordEl.value = data.password;
-            }
+            if (loginEmailEl && data.email) loginEmailEl.value = data.email;
+            if (loginPasswordEl && data.password) loginPasswordEl.value = data.password;
         }
-    } catch (error) {
-        console.warn("Could not pre-fill login details. Running in production or server is down.");
-    }
+    } catch (error) {}
 }
 
 async function handleLogin() {
-    const email = loginEmailEl.value;
-    const password = loginPasswordEl.value;
-
+    showLoader();
     try {
         const response = await fetch('/api/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password })
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: loginEmailEl.value, password: loginPasswordEl.value })
         });
         const data = await response.json();
-        if (!response.ok) {
-            throw new Error(data.message || 'Login failed');
-        }
+        if (!response.ok) throw new Error(data.message || 'Login failed');
         authToken = data.token;
         localStorage.setItem('authToken', authToken);
         showApp();
     } catch (error) {
         showNotification(error.message, true);
+    } finally {
+        hideLoader();
     }
 }
 
 function logout() {
-    authToken = null;
-    localStorage.removeItem('authToken');
+    authToken = null; localStorage.removeItem('authToken');
     if(loginEmailEl) loginEmailEl.value = '';
     if(loginPasswordEl) loginPasswordEl.value = '';
     showLogin();
@@ -135,252 +147,556 @@ function showApp() {
     loadInitialData();
 }
 
-// --- API FUNCTIONS ---
-function getAuthHeaders() {
-    if (!authToken) {
-        return {};
-    }
-    return { "Authorization": `Bearer ${authToken}` };
-}
+// --- API ---
+function getAuthHeaders() { return authToken ? { "Authorization": `Bearer ${authToken}` } : {}; }
 
 async function fetchApiData(endpoint, errorMessage, options = {}) {
     const headers = { ...getAuthHeaders(), ...options.headers };
-
-    if (!headers.Authorization) {
-        showNotification("Please log in to continue.", true);
-        logout();
-        return Promise.reject("Unauthorized");
-    }
+    if (!headers.Authorization) { logout(); return Promise.reject("Unauthorized"); }
 
     try {
         const response = await fetch(`/api${endpoint}`, { ...options, headers });
-        if (response.status === 401) {
-            showNotification("Session expired. Please log in again.", true);
-            logout();
-            return Promise.reject("Unauthorized");
-        }
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || errorData.message || `Server error: ${response.status}`);
-        }
-        const contentType = response.headers.get('Content-Type');
-        const isExcel = contentType && contentType.includes('spreadsheetml.sheet');
-        if (contentType && contentType.includes('application/pdf') || isExcel) {
-            return await response.blob();
-        }
+        if (response.status === 401) { showNotification("Session expired.", true); logout(); return Promise.reject("Unauthorized"); }
+        if (!response.ok) { const e = await response.json(); throw new Error(e.error || `Server error: ${response.status}`); }
+        const cType = response.headers.get('Content-Type');
+        if (cType && (cType.includes('pdf') || cType.includes('sheet'))) return await response.blob();
         const text = await response.text();
         return text ? JSON.parse(text) : {};
     } catch (error) {
-        console.error(`Client-side API Error in ${endpoint}:`, error);
         showNotification(error.message || errorMessage, true);
         return Promise.reject(error.message);
     }
 }
 
-// --- DATA FETCHING & ACTION WRAPPERS ---
 const fetchOrdersFromServer = () => fetchApiData(`/get-orders`, 'Failed to fetch orders.');
 const fetchAdPerformanceData = (since, until) => fetchApiData(`/get-ad-performance?since=${since}&until=${until}`, 'Failed to fetch ad performance.');
 const fetchAdsetPerformanceData = (endpoint) => fetchApiData(endpoint, 'Failed to fetch ad set performance.');
 
-async function createShipment(orderId, platform) {
-    showNotification(`Creating shipment for order...`);
-    try {
-        const result = await fetchApiData('/create-shipment', 'Error creating shipment', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ orderId, platform })
-        });
-        if (result && result.success) {
-            showNotification(`Shipment created! AWB: ${result.awb}`);
-            const orderIndex = allOrders.findIndex(o => o.originalId === orderId);
-            if (orderIndex !== -1) {
-                allOrders[orderIndex].status = result.newStatus;
-                allOrders[orderIndex].awb = result.awb;
-                renderOrderDetails(allOrders[orderIndex]);
-                renderAllDashboard();
-            }
-        }
-    } catch (error) { /* Error is already handled by fetchApiData */ }
-}
-
+// --- ACTIONS (Client-side Download) ---
 async function downloadShipmentLabel(awb) {
-    if (!awb) {
-        showNotification("No AWB number found for this order.", true);
-        return;
-    }
-    showNotification(`Fetching label for AWB: ${awb}...`);
+    if (!awb) { showNotification("No AWB number found.", true); return; }
+    const btn = document.activeElement;
+    const originalText = btn ? btn.textContent : 'Label';
+    if(btn) btn.textContent = "Opening...";
     try {
-        const blob = await fetchApiData(`/get-shipping-label?awb=${awb}`, "Failed to download label");
-        if (blob) {
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `label_${awb}.pdf`;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            window.URL.revokeObjectURL(url);
-        }
-    } catch (err) { /* Error is handled by fetchApiData */ }
-}
-
-async function cancelOrder(orderId, platform, orderName) {
-    if (!confirm(`Are you sure you want to cancel order ${orderName}?`)) {
-        return;
-    }
-    showNotification(`Cancelling order ${orderName}...`);
-    try {
-         await fetchApiData('/update-status', 'Error cancelling order', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ orderId, platform, newStatus: 'Cancelled' })
-        });
-        showNotification("Order cancelled successfully!");
-        const orderIndex = allOrders.findIndex(o => o.originalId === orderId);
-        if (orderIndex !== -1) {
-            allOrders[orderIndex].status = 'Cancelled';
-            renderOrderDetails(allOrders[orderIndex]);
-            renderAllDashboard();
-        }
-    } catch(error) { /* Error handled by fetchApiData */ }
-}
-
-async function downloadShipmentInvoice(awb, orderId) {
-    if (!awb) {
-        showNotification("No AWB number found for this order.", true);
-        return;
-    }
-    showNotification(`Fetching invoice for order: ${orderId}...`);
-    try {
-        const blob = await fetchApiData(`/get-shipping-invoice?awb=${awb}&orderId=${orderId}`, "Failed to download invoice");
-        if (blob) {
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `invoice_${orderId ? orderId.replace('#', '') : awb}.pdf`;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            window.URL.revokeObjectURL(url);
-        }
-    } catch (err) { /* Error is handled by fetchApiData */ }
+        const response = await fetch(`/api/get-shipping-label?awb=${awb}`, { headers: { 'Authorization': `Bearer ${authToken}` } });
+        const data = await response.json();
+        if (response.ok && data.success && data.url) {
+            window.open(data.url, '_blank');
+            showNotification("Label opened in new tab.");
+        } else { throw new Error(data.error || "Label URL not found"); }
+    } catch (err) { showNotification("Failed: " + err.message, true); } finally { if(btn) btn.textContent = originalText; }
 }
 
 // --- UI RENDERING ---
 function navigate(view) {
+    console.log("Navigating to:", view); // Debugging log
     currentView = view;
-    document.querySelectorAll('.sidebar-link').forEach(link => link.classList.remove('active'));
-    document.querySelectorAll('main > div[id$="-view"]').forEach(v => v.classList.add('view-hidden'));
     
-    let activeLink, activeView;
+    // 1. Deactivate all sidebar links
+    // We select them fresh to ensure we get them all
+    const allLinks = document.querySelectorAll('.sidebar-link');
+    allLinks.forEach(link => link.classList.remove('active'));
+    
+    // 2. NUCLEAR HIDING: Hide EVERYTHING inside <main>
+    // This is the most robust way. It doesn't rely on IDs matching perfectly.
+    const mainContainer = document.querySelector('main');
+    if (mainContainer) {
+        // Convert children to an array and loop through them
+        Array.from(mainContainer.children).forEach(child => {
+            // Only hide DIVs (which are your view containers)
+            if (child.tagName === 'DIV') {
+                child.style.display = 'none';       // Force inline CSS hide
+                child.classList.add('view-hidden'); // Tailwind/CSS class hide
+                child.classList.add('hidden');      // Extra safety
+            }
+        });
+    } else {
+        console.error("Main container not found!");
+    }
+
+    let activeLinkElement = null;
+    let activeViewElement = null;
+    
+    // 3. Select the elements FRESH from the DOM (No global variables)
+    // This prevents "null" errors if variables weren't initialized correctly
     switch(view) {
-        case 'orders-dashboard': activeLink = navOrdersDashboard; activeView = ordersDashboardView; renderAllDashboard(); break;
-        case 'order-insights': activeLink = navOrderInsights; activeView = orderInsightsView; renderAllInsights(); break;
-        case 'ad-performance': activeLink = navAdPerformance; activeView = adPerformanceView; handleAdPerformanceDateChange(); break;
-        case 'adset-breakdown': activeLink = navAdsetBreakdown; activeView = adsetBreakdownView; handleAdsetDateChange(); break;
-        case 'settings': activeLink = navSettings; activeView = settingsView; renderSettings(); break;
+        case 'orders-dashboard': 
+            activeLinkElement = document.getElementById('nav-orders-dashboard'); 
+            activeViewElement = document.getElementById('orders-dashboard-view'); 
+            if(typeof renderAllDashboard === 'function') renderAllDashboard(); 
+            break;
+        case 'order-insights': 
+            activeLinkElement = document.getElementById('nav-order-insights'); 
+            activeViewElement = document.getElementById('order-insights-view'); 
+            if(typeof renderAllInsights === 'function') renderAllInsights(); 
+            break;
+        case 'profitability': 
+            activeLinkElement = document.getElementById('nav-profitability'); 
+            activeViewElement = document.getElementById('profitability-view'); 
+            if(typeof handleProfitabilityChange === 'function') handleProfitabilityChange(); 
+            break;
+        case 'customer-segments': 
+            activeLinkElement = document.getElementById('nav-customer-segments'); 
+            activeViewElement = document.getElementById('customer-segments-view'); 
+            if(typeof renderCustomerSegments === 'function') renderCustomerSegments(); 
+            break;
+        case 'returns-analysis': 
+            activeLinkElement = document.getElementById('nav-returns-analysis'); 
+            activeViewElement = document.getElementById('returns-analysis-view'); 
+            if(typeof renderReturnsAnalysis === 'function') renderReturnsAnalysis(); 
+            break;
+        case 'ad-ranking': 
+            activeLinkElement = document.getElementById('nav-ad-ranking'); 
+            activeViewElement = document.getElementById('ad-ranking-view'); 
+            if(typeof handleAdsetDateChange === 'function') handleAdsetDateChange(true); 
+            break;
+        case 'adset-breakdown': 
+            activeLinkElement = document.getElementById('nav-adset-breakdown'); 
+            activeViewElement = document.getElementById('adset-breakdown-view'); 
+            if(typeof handleAdsetDateChange === 'function') handleAdsetDateChange(false); 
+            break;
+        case 'ad-analysis': 
+            activeLinkElement = document.getElementById('nav-ad-analysis'); 
+            activeViewElement = document.getElementById('ad-analysis-view'); 
+            if(typeof renderAdAnalysis === 'function') renderAdAnalysis(); 
+            break;
+        case 'settings': 
+            activeLinkElement = document.getElementById('nav-settings'); 
+            activeViewElement = document.getElementById('settings-view'); 
+            if(typeof renderSettings === 'function') renderSettings(); 
+            break;
+        case 'reports-view': 
+            activeLinkElement = document.getElementById('nav-reports'); 
+            activeViewElement = document.getElementById('reports-view'); 
+            break;
     }
-    if (activeLink) activeLink.classList.add('active');
-    if (activeView) activeView.classList.remove('view-hidden');
+
+    // 4. Show the new view
+    if (activeLinkElement) {
+        activeLinkElement.classList.add('active');
+    }
+    
+    if (activeViewElement) {
+        // Force show (remove all hiding mechanisms)
+        activeViewElement.style.display = 'block'; 
+        activeViewElement.classList.remove('view-hidden');
+        activeViewElement.classList.remove('hidden');
+        
+        // 5. Scroll Reset
+        window.scrollTo(0, 0);
+        if (mainContainer) mainContainer.scrollTop = 0;
+    } else {
+        console.error("Could not find view element for:", view);
+    }
 }
 
-function renderOrderDetails(order) {
-    if (!order) return;
+// --- CHECK SHIPMENT STATUS ---
+async function checkAndUpdateWorkflow(originalOrderId, uniqueId) {
+    const step1 = document.getElementById(`step1-container-${uniqueId}`);
+    const step2 = document.getElementById(`step2-container-${uniqueId}`);
+    const input = document.getElementById(`shipment-id-${uniqueId}`);
+    const msgEl = document.getElementById(`msg-${uniqueId}`);
+
+    if (!step1 || !input || input.value) return; 
+
+    msgEl.textContent = "Checking status...";
+    try {
+        const res = await fetchApiData('/get-shipment-status', "Status Check Failed", {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ orderId: originalOrderId })
+        });
+
+        if (res.shipmentId) {
+            input.value = res.shipmentId;
+            // If already assigned AWB, hide steps and show download UI
+            if (res.awbAssigned) {
+                document.getElementById(`step1-container-${uniqueId}`).classList.add('hidden');
+                document.getElementById(`step2-container-${uniqueId}`).classList.add('hidden');
+                document.getElementById(`step3-container-${uniqueId}`).classList.remove('opacity-50', 'pointer-events-none');
+                msgEl.textContent = "Assigned. Ready to Download.";
+                msgEl.className = "mt-3 text-xs font-bold text-center text-emerald-600";
+            } else {
+                const btn1 = document.getElementById(`btn-step1-${uniqueId}`);
+                if(btn1) {
+                    btn1.textContent = "Approved";
+                    btn1.className = "px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-bold rounded cursor-default";
+                    btn1.disabled = true;
+                }
+                if(step2) step2.classList.remove('opacity-50', 'pointer-events-none');
+                const btn2 = document.getElementById(`btn-step2-${uniqueId}`);
+                if(btn2) btn2.dataset.originalId = originalOrderId;
+                msgEl.textContent = "Approved. Proceed to Assign.";
+                msgEl.className = "mt-3 text-xs font-medium text-center text-indigo-600";
+            }
+        } else { msgEl.textContent = ""; }
+    } catch (e) { msgEl.textContent = ""; }
+}
+
+// --- DASHBOARD FILTERS RENDERING ---
+function renderDashboardFilters() {
+    // 1. Platform Filter
+    platformFiltersEl.innerHTML = ['All', 'Amazon', 'Shopify'].map(p => 
+        `<button data-filter="${p}" class="filter-btn px-3 py-1 text-sm rounded-md ${activePlatformFilter===p ? 'active' : ''}">${p}</button>`
+    ).join('');
     
-    const orderItems = order.line_items || order.items || [];
-    
-    const itemsHtml = orderItems.map(item => {
-        const itemName = item.title || item.name || 'Unknown Item';
-        const itemSku = item.sku || 'N/A';
-        const itemQty = item.quantity || item.qty || 1;
-        
-        return `<div class="flex items-center space-x-4">
-            <img src="${createFallbackImage(itemName)}" alt="${itemName}" class="w-14 h-14 rounded-lg object-cover bg-slate-200">
-            <div class="flex-1">
-                <p class="font-semibold text-slate-900">${itemName}</p>
-                <p class="text-sm text-slate-500">SKU: ${itemSku}</p>
-            </div>
-            <p class="text-sm text-slate-500">x ${itemQty}</p>
-        </div>`;
-    }).join('<hr class="my-3 border-slate-100">');
-    
-    const customerName = order.buyerName || order.name || 'N/A';
-    const customerAddress = order.address || 'No address available';
-    
-    let primaryActionsHtml = '';
-    let secondaryActions = '';
-    
-    if (order.platform === 'Shopify') {
-        if (order.status === 'New' && !order.awb) {
-            primaryActionsHtml += `<button id="create-shipment-btn" class="flex-1 w-full px-4 py-2.5 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700">Create Shipment (RapidShyp)</button>`;
-        }
-        
-        if (order.awb) {
-            primaryActionsHtml += `
-                <div class="flex gap-2 w-full">
-                    <button id="download-label-btn" class="flex-1 px-4 py-2.5 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700">Download Label</button>
-                    <button id="download-invoice-btn" class="flex-1 px-4 py-2.5 bg-slate-600 text-white font-semibold rounded-lg hover:bg-slate-700">Download Invoice</button>
-                </div>
-                <p class="text-xs text-center text-slate-500 w-full mt-1">AWB: ${order.awb}</p>
-            `;
-        }
+    // 2. Source Filter (Bifurcation: RapidShyp vs DocPharma)
+    // We inject this next to Platform Filters if not present
+    let sourceContainer = document.getElementById('source-filters');
+    if (!sourceContainer) {
+        sourceContainer = document.createElement('div');
+        sourceContainer.id = 'source-filters';
+        sourceContainer.className = 'flex bg-slate-100 rounded-lg p-1 gap-1 ml-4';
+        platformFiltersEl.parentNode.insertBefore(sourceContainer, platformFiltersEl.nextSibling);
     }
     
-    if (order.status !== 'Shipped' && order.status !== 'Cancelled') {
-        secondaryActions += `<a href="#" id="cancel-btn" class="block px-4 py-2 text-sm text-red-600 hover:bg-red-50">Cancel Order</a>`;
+    sourceContainer.innerHTML = ['All', 'RapidShyp', 'DocPharma'].map(s => 
+        `<button data-source="${s}" class="source-btn px-3 py-1 text-sm font-medium rounded-md transition-all ${activeSourceFilter===s ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}">${s}</button>`
+    ).join('');
+
+    // 3. Location Filter (Dropdown)
+    let locationContainer = document.getElementById('location-filter-container');
+    if (!locationContainer) {
+        locationContainer = document.createElement('div');
+        locationContainer.id = 'location-filter-container';
+        locationContainer.className = 'ml-4';
+        platformFiltersEl.parentNode.appendChild(locationContainer);
     }
+
+    // Attach Listeners
+    platformFiltersEl.querySelectorAll('.filter-btn').forEach(b => {
+        b.addEventListener('click', () => { activePlatformFilter = b.dataset.filter; renderAllDashboard(); });
+    });
     
-    modalContent.innerHTML = `
-        <h3 class="text-lg font-semibold text-slate-900 mb-4">Order Details (${order.id})</h3>
-        <div class="space-y-4">
-            <div>
-                <h4 class="text-sm font-medium text-slate-500 mb-2">Customer</h4>
-                <address class="not-italic text-slate-700">
-                    <p class="font-semibold">${customerName}</p>
-                    <p class="text-sm">${customerAddress}</p>
-                </address>
-            </div>
-            <div>
-                <h4 class="text-sm font-medium text-slate-500 mb-2">Items</h4>
-                <div class="space-y-3">${itemsHtml || '<p class="text-sm text-slate-500">No items found</p>'}</div>
-            </div>
-            <div>
-                <h4 class="text-sm font-medium text-slate-500 mb-2">Actions</h4>
-                <div class="flex flex-wrap items-center gap-2">
-                    ${primaryActionsHtml || '<p class="text-sm text-slate-500">No primary actions available.</p>'}
-                    <div class="relative ml-auto">
-                        <button id="actions-menu-btn" class="p-2.5 bg-slate-100 text-slate-600 font-semibold rounded-lg hover:bg-slate-200 ${!secondaryActions ? 'hidden' : ''}">
-                            <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" /></svg>
-                        </button>
-                        <div id="actions-menu" class="hidden absolute right-0 bottom-full mb-2 w-48 bg-white rounded-lg shadow-xl z-10 py-1 border">${secondaryActions}</div>
+    sourceContainer.querySelectorAll('.source-btn').forEach(b => {
+        b.addEventListener('click', () => { activeSourceFilter = b.dataset.source; renderAllDashboard(); });
+    });
+}
+
+function renderAllDashboard() {
+    const [s, e] = calculateDateRange(activeDatePreset, startDateFilterEl.value, endDateFilterEl.value);
+    let o = [...allOrders];
+
+    // Date Filter
+    if (s && e) {
+        o = o.filter(t => { const d = new Date(t.date); return d >= s && d <= e });
+    }
+
+    // Platform Filter
+    if (activePlatformFilter !== 'All') {
+        o = o.filter(t => t.platform === activePlatformFilter);
+    }
+
+    // Status Filter
+    if (activeStatusFilter !== 'All') {
+        o = o.filter(t => t.status === activeStatusFilter);
+    }
+
+    // Source Filter (Bifurcation)
+        if (activeSourceFilter !== 'All') {
+            o = o.filter(order => {
+                const tags = (order.tags || '').toLowerCase();
+                const isDocPharma = tags.includes('docpharma: in-progress');
+
+                if (activeSourceFilter === 'DocPharma') return isDocPharma;
+                if (activeSourceFilter === 'RapidShyp') return !isDocPharma;
+                return true;
+            });
+        }
+
+
+    // Sort
+    const t = [...o].sort((a, b) => new Date(b.date) - new Date(a.date));
+    
+    renderDashboardFilters(); // Re-render to keep state but careful not to lose focus if used often. Better to render once or smartly.
+    // For this implementation, calling it here updates counts if we added them, but mainly ensures DOM exists.
+    
+    renderOrders(t);
+    updateDashboardKpis(o);
+}
+
+// --- ORDER LIST RENDERING ---
+function renderOrders(o) {
+    ordersListEl.innerHTML = '';
+    if (o.length === 0) {
+        ordersListEl.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-slate-400">No orders found.</td></tr>`;
+        return;
+    }
+
+    o.forEach(order => {
+        const displayName = (order.name === 'N/A' && order.buyerName) ? order.buyerName : order.name;
+        
+        const mainRow = document.createElement('tr');
+        mainRow.className = `order-row border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors`;
+        mainRow.dataset.orderId = order.id;
+        
+        // Prepare Hover Text for Tooltip
+        const tagsDisplay = (order.tags || 'None');
+        const locDisplay = (order.locationId || 'N/A');
+        const hoverText = `Location ID: ${locDisplay}\nTags: ${tagsDisplay}`;
+
+        mainRow.innerHTML = `
+            <td class="p-4"><img src="${platformLogos[order.platform]||''}" class="w-6 h-6 grayscale hover:grayscale-0 transition-all" alt="${order.platform}"></td>
+            <td class="p-4 text-slate-500 text-sm font-medium">${order.date}</td>
+            <td class="p-4 font-semibold text-slate-900 group relative">
+                <span title="${hoverText}" class="cursor-help border-b border-dotted border-slate-400">${order.id}</span>
+                <div class="text-[10px] text-slate-400 font-normal mt-0.5">${order.awb ? 'AWB: ' + order.awb : 'Unfulfilled'}</div>
+            </td>
+            <td class="p-4 font-medium text-slate-800">${displayName}</td>
+            <td class="p-4 font-medium text-slate-900">${formatCurrency(order.total)}</td>
+            <td class="p-4"><span class="px-3 py-1 text-xs font-semibold rounded-full ${getStatusBadge(order.status)}">${order.status}</span></td>
+            <td class="p-4 text-right">
+                 <svg class="w-4 h-4 text-slate-400 transform transition-transform duration-200" id="arrow-${order.id}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+            </td>
+        `;
+
+        const detailsRow = document.createElement('tr');
+        detailsRow.id = `details-${order.id}`;
+        detailsRow.className = 'hidden bg-slate-50/50';
+        
+        const orderItems = order.line_items || order.items || [];
+        const itemsHtml = orderItems.map(item => {
+            const itemName = item.title || item.name || 'Unknown Item';
+            const itemQty = item.quantity || item.qty || 1;
+            return `
+                <div class="flex items-center gap-3 p-2 bg-white rounded border border-slate-100 mb-1">
+                    <img src="${createFallbackImage(itemName)}" class="w-8 h-8 rounded object-cover">
+                    <div class="flex-1 text-sm text-slate-700 truncate">${itemName}</div>
+                    <div class="text-xs font-bold text-slate-500">x${itemQty}</div>
+                </div>`;
+        }).join('');
+
+        const customerAddress = order.address || 'No address';
+        const uniqueId = order.id.replace(/\W/g, ''); 
+
+        // --- WORKFLOW UI VISIBILITY LOGIC ---
+        let workflowHtml = '';
+        
+        // Tag Logic: DocPharma vs RapidShyp
+        const tags = (order.tags || '').toLowerCase();
+        const hasInProgress = tags.includes('docpharma: in-progress');
+        
+        // Eligibility: Show if Shopify AND NOT 'in-progress'
+        const shouldShow = (order.platform === 'Shopify') && (!hasInProgress);
+
+        if (shouldShow) {
+             if (order.status === 'New' || order.status === 'Processing') {
+                workflowHtml = `
+                    <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mt-2">
+                        <div class="flex justify-between items-center mb-3">
+                            <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wide">RapidShyp Workflow</h4>
+                            <button onclick="handleCancelOrder('${order.originalId}', '${uniqueId}')" class="text-xs text-rose-500 hover:text-rose-700 font-semibold border border-rose-200 px-2 py-1 rounded hover:bg-rose-50 transition">Cancel Order</button>
+                        </div>
+                        <div class="space-y-3">
+                            <div id="step1-container-${uniqueId}" class="flex items-center justify-between p-2 bg-slate-50 rounded border border-slate-100">
+                                <div><p class="text-sm font-semibold text-slate-800">Step 1: Approve Order</p><p class="text-[10px] text-slate-500">Validates & approves in RapidShyp</p></div>
+                                <button id="btn-step1-${uniqueId}" onclick="handleManualStep1('${order.originalId}', '${uniqueId}')" class="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded transition-colors shadow-sm">Approve</button>
+                            </div>
+                            
+                            <div id="step2-container-${uniqueId}" class="flex items-center justify-between p-2 bg-slate-50 rounded border border-slate-100 opacity-50 pointer-events-none transition-opacity">
+                                <div><p class="text-sm font-semibold text-slate-800">Step 2: Assign Courier</p><p class="text-[10px] text-slate-500">Allocates AWB automatically</p></div>
+                                <button id="btn-step2-${uniqueId}" data-original-id="${order.originalId}" onclick="handleManualStep2('${uniqueId}')" class="px-3 py-1 bg-white border border-slate-300 text-slate-700 text-xs font-medium rounded hover:bg-slate-50 transition-colors">Assign</button>
+                            </div>
+
+                            <div id="step3-container-${uniqueId}" class="flex items-center justify-between p-2 bg-slate-50 rounded border border-slate-100 opacity-50 pointer-events-none transition-opacity">
+                                <div><p class="text-sm font-semibold text-slate-800">Step 3: Generate Label</p><p class="text-[10px] text-slate-500">Downloads PDF shipping label</p></div>
+                                <button id="btn-step3-${uniqueId}" onclick="handleManualStep3('${uniqueId}')" class="px-3 py-1 bg-white border border-slate-300 text-slate-700 text-xs font-medium rounded hover:bg-slate-50 transition-colors">Download</button>
+                            </div>
+                        </div>
+                        <div id="msg-${uniqueId}" class="mt-3 text-xs font-medium text-center text-slate-500 min-h-[1.5em]"></div>
+                        <input type="hidden" id="shipment-id-${uniqueId}">
                     </div>
+                `;
+            } else if (order.awb) {
+                 // Completed State: Only Label Button (Invoice Removed)
+                 workflowHtml = `
+                    <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mt-2">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-xs font-bold text-emerald-600 uppercase">Order Shipped</span>
+                            <span class="text-xs font-mono text-slate-500">${order.awb}</span>
+                        </div>
+                        <div class="grid grid-cols-1 gap-2">
+                            <button onclick="downloadShipmentLabel('${order.awb}')" class="px-3 py-2 bg-indigo-50 text-indigo-700 text-sm font-medium rounded hover:bg-indigo-100 border border-indigo-100 transition">Label</button>
+                        </div>
+                    </div>
+                 `;
+            }
+        }
+
+        detailsRow.innerHTML = `
+            <td colspan="7" class="p-0">
+                <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-8 border-t border-slate-100">
+                    <div class="space-y-4">
+                        <div>
+                            <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Customer Details</h4>
+                            <div class="bg-white p-3 rounded border border-slate-200 text-sm">
+                                <p class="font-bold text-slate-800">${displayName}</p>
+                                <p class="text-slate-500 mt-1">${customerAddress}</p>
+                                <p class="text-slate-400 text-xs mt-1">${order.email || ''}</p>
+                            </div>
+                        </div>
+                        <div>
+                            <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Order Items</h4>
+                            <div class="max-h-40 overflow-y-auto pr-2 custom-scrollbar">${itemsHtml}</div>
+                        </div>
+                    </div>
+                    <div>${workflowHtml}</div>
                 </div>
-            </div>
-        </div>
-    `;
-    
-    document.getElementById('create-shipment-btn')?.addEventListener('click', () => createShipment(order.originalId, order.platform));
-    document.getElementById('download-label-btn')?.addEventListener('click', () => downloadShipmentLabel(order.awb));
-    document.getElementById('download-invoice-btn')?.addEventListener('click', () => downloadShipmentInvoice(order.awb, order.id));
-    document.getElementById('cancel-btn')?.addEventListener('click', (e) => { e.preventDefault(); cancelOrder(order.originalId, order.platform, order.id); });
-    document.getElementById('actions-menu-btn')?.addEventListener('click', () => document.getElementById('actions-menu').classList.toggle('hidden'));
+            </td>
+        `;
+
+        mainRow.addEventListener('click', (e) => {
+            if (e.target.closest('button') || e.target.closest('select') || e.target.closest('input')) return;
+            const details = document.getElementById(`details-${order.id}`);
+            const arrow = document.getElementById(`arrow-${order.id}`);
+            const isHidden = details.classList.contains('hidden');
+            
+            document.querySelectorAll('[id^="details-"]').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('[id^="arrow-"]').forEach(el => el.classList.remove('rotate-180'));
+
+            if (isHidden) {
+                details.classList.remove('hidden');
+                arrow.classList.add('rotate-180');
+                if (shouldShow && (order.status === 'New' || order.status === 'Processing')) {
+                    checkAndUpdateWorkflow(order.originalId, uniqueId);
+                }
+            }
+        });
+
+        ordersListEl.appendChild(mainRow);
+        ordersListEl.appendChild(detailsRow);
+    });
 }
 
-async function handleAdPerformanceDateChange() {
-    const [startDate, endDate] = calculateDateRange(adPerformanceDatePreset, adStartDateFilterEl.value, adEndDateFilterEl.value);
-    if (startDate && endDate) {
-        const since = startDate.toISOString().split('T')[0];
-        const until = endDate.toISOString().split('T')[0];
-        try {
-            performanceData = await fetchAdPerformanceData(since, until);
-            renderAdPerformancePage();
-        } catch (error) {}
+// --- MANUAL WORKFLOW HANDLERS ---
+
+async function handleManualStep1(originalOrderId, uniqueId) {
+    const msgEl = document.getElementById(`msg-${uniqueId}`);
+    const btn1 = document.getElementById(`btn-step1-${uniqueId}`);
+    btn1.textContent = "Processing...";
+    btn1.disabled = true;
+    msgEl.textContent = "Approving...";
+
+    try {
+        const res = await fetchApiData('/approve-order', "Approval Failed", {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ orderId: originalOrderId })
+        });
+
+        if (res.success) {
+            document.getElementById(`shipment-id-${uniqueId}`).value = res.shipmentId || ""; 
+            msgEl.textContent = "Approved! Proceed to Assign.";
+            msgEl.className = "mt-3 text-xs font-medium text-center text-emerald-600";
+            
+            btn1.textContent = "Approved";
+            btn1.className = "px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-bold rounded cursor-default";
+            
+            const step2 = document.getElementById(`step2-container-${uniqueId}`);
+            step2.classList.remove('opacity-50', 'pointer-events-none');
+            
+            const btn2 = document.getElementById(`btn-step2-${uniqueId}`);
+            btn2.dataset.originalId = originalOrderId;
+            btn2.className = "px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded transition-colors shadow-sm";
+            
+            if (!res.shipmentId) checkAndUpdateWorkflow(originalOrderId, uniqueId);
+        }
+    } catch (e) {
+        btn1.textContent = "Retry";
+        btn1.disabled = false;
+        msgEl.textContent = "Error: " + e;
+        msgEl.className = "mt-3 text-xs font-medium text-center text-rose-500";
     }
 }
 
-async function handleAdsetDateChange() {
+async function handleManualStep2(uniqueId) {
+    const shipmentId = document.getElementById(`shipment-id-${uniqueId}`).value;
+    const msgEl = document.getElementById(`msg-${uniqueId}`);
+    const btn2 = document.getElementById(`btn-step2-${uniqueId}`);
+    const originalOrderId = btn2.dataset.originalId || ""; 
+
+    btn2.textContent = "Assigning...";
+    btn2.disabled = true;
+    msgEl.textContent = "Assigning courier...";
+
+    try {
+        const res = await fetchApiData('/assign-awb', "Assignment Failed", {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ shipmentId: shipmentId, orderId: originalOrderId }) 
+        });
+
+        if (res.success) {
+            msgEl.textContent = `Assigned: ${res.courier || 'Auto'} (${res.awb})`;
+            msgEl.className = "mt-3 text-xs font-medium text-center text-emerald-600";
+            
+            document.getElementById(`step1-container-${uniqueId}`).classList.add('hidden');
+            document.getElementById(`step2-container-${uniqueId}`).classList.add('hidden');
+
+            const step3 = document.getElementById(`step3-container-${uniqueId}`);
+            step3.classList.remove('opacity-50', 'pointer-events-none');
+            const btn3 = document.getElementById(`btn-step3-${uniqueId}`);
+            btn3.className = "px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded transition-colors shadow-sm";
+        }
+    } catch (e) {
+        btn2.textContent = "Retry";
+        btn2.disabled = false;
+        msgEl.textContent = "Error: " + e;
+        msgEl.className = "mt-3 text-xs font-medium text-center text-rose-500";
+    }
+}
+
+async function handleManualStep3(uniqueId) {
+    const shipmentId = document.getElementById(`shipment-id-${uniqueId}`).value;
+    const msgEl = document.getElementById(`msg-${uniqueId}`);
+    const btn3 = document.getElementById(`btn-step3-${uniqueId}`);
+    btn3.textContent = "Loading...";
+    btn3.disabled = true;
+
+    try {
+        const res = await fetchApiData('/generate-label', "Label Failed", {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ shipmentId: shipmentId })
+        });
+
+        if (res.success && res.labelUrl) {
+            window.open(res.labelUrl, '_blank');
+            msgEl.textContent = "Label Generated!";
+            btn3.textContent = "Done";
+            btn3.className = "px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-bold rounded cursor-default";
+            setTimeout(() => { renderAllDashboard(); }, 3000);
+        }
+    } catch (e) {
+        btn3.textContent = "Retry";
+        btn3.disabled = false;
+        msgEl.textContent = "Error: " + e;
+    }
+}
+
+async function handleCancelOrder(originalOrderId, uniqueId) {
+    if(!confirm("Are you sure you want to cancel this order in RapidShyp?")) return;
+    const msgEl = document.getElementById(`msg-${uniqueId}`);
+    msgEl.textContent = "Cancelling...";
+    try {
+        const res = await fetchApiData('/cancel-order', "Cancel Failed", {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ orderId: originalOrderId })
+        });
+        if (res.success) {
+            msgEl.textContent = "Order Cancelled.";
+            msgEl.className = "mt-3 text-xs font-medium text-center text-rose-600";
+            setTimeout(() => { renderAllDashboard(); }, 2000);
+        }
+    } catch (e) {
+        msgEl.textContent = "Error: " + e;
+        msgEl.className = "mt-3 text-xs font-medium text-center text-rose-500";
+    }
+}
+
+// --- DATA HANDLERS ---
+async function handleAdsetDateChange(isRankingView = false) {
     const [startDate, endDate] = calculateDateRange(adsetDatePreset, adsetStartDateFilterEl.value, adsetEndDateFilterEl.value);
+    
     if (startDate && endDate) {
+        showLoader();
         const since = startDate.toISOString().split('T')[0];
         const until = endDate.toISOString().split('T')[0];
         const dateFilterType = adsetDateFilterTypeEl ? adsetDateFilterTypeEl.value : 'order_date';
@@ -389,107 +705,384 @@ async function handleAdsetDateChange() {
         try {
             const response = await fetchAdsetPerformanceData(endpoint);
             adsetPerformanceData = response.adsetPerformance || [];
-            
-            // Reset sorting when new data is fetched
-            currentSortKey = null;
-            currentSortOrder = 'asc';
-            document.querySelectorAll("#adsetPerformanceTable th.sortable").forEach(th => {
-                 const originalText = (th.dataset.originalText || th.textContent.replace(/[▲▼⬍]/g, "")).trim();
-                 th.dataset.originalText = originalText;
-                 th.textContent = `${originalText} ⬍`;
-            });
-
-            renderAdsetPerformanceDashboard();
-        } catch (error) { /* Error is handled by fetchApiData */ }
+            if (isRankingView) renderAdRanking();
+            else {
+                updateAdsetSummary(adsetPerformanceData);
+                renderAdsetPerformanceDashboard(); 
+            }
+        } catch (error) { } finally { hideLoader(); }
     }
 }
 
-function renderAdPerformancePage() {
-    renderDailyPerformance();
-    renderAdPerformanceCharts();
+async function handleProfitabilityChange() {
+    const [startDate, endDate] = calculateDateRange(profitDatePreset, profitStartDateFilterEl.value, profitEndDateFilterEl.value);
+    if (!startDate || !endDate) return;
+
+    showLoader();
+    try {
+        const since = startDate.toISOString().split('T')[0];
+        const until = endDate.toISOString().split('T')[0];
+        let adData = [];
+        try {
+             adData = await fetchAdPerformanceData(since, until) || [];
+        } catch (e) { }
+        renderProfitabilityDashboard(adData, startDate, endDate);
+    } catch(e) { } finally { hideLoader(); }
 }
 
-function renderDailyPerformance() {
-    const totals = performanceData.reduce((a, d) => (
-        a.spend += d.spend,
-        a.revenue += d.revenue,
-        a.orders += d.totalOrders,
-        a.delivered += d.deliveredOrders,
-        a.rto += d.rtoOrders,
-        a.cancelled += d.cancelledOrders,
-        a.deliveredRevenue += (d.deliveredRevenue != null ? d.deliveredRevenue : (d.totalOrders > 0 ? d.revenue * (d.deliveredOrders / d.totalOrders) : 0)),
-        a
-    ), { spend: 0, revenue: 0, orders: 0, delivered: 0, rto: 0, cancelled: 0, deliveredRevenue: 0 });
-    const roas = totals.spend > 0 ? totals.deliveredRevenue / totals.spend : 0;
-    const renderKpi = (e, t, v) => {
-        e.innerHTML = `<p class="text-sm font-medium text-slate-500">${t}</p><p class="text-3xl font-bold text-slate-800 mt-2">${v}</p>`;
-    };
-    renderKpi(adKpiElements.totalSpend, 'Total Spend', formatCurrency(totals.spend));
-    renderKpi(adKpiElements.totalRevenue, 'Total Revenue', formatCurrency(totals.revenue));
-    renderKpi(adKpiElements.roas, 'ROAS', `${roas.toFixed(2)}x`);
-    renderKpi(adKpiElements.delivered, 'Delivered', formatNumber(totals.delivered));
-    renderKpi(adKpiElements.rto, 'RTO', formatNumber(totals.rto));
-    renderKpi(adKpiElements.cancelled, 'Cancelled', formatNumber(totals.cancelled));
-    performanceTableBody.innerHTML = '';
-    [...performanceData].reverse().forEach(d => {
-        const c = d.totalOrders > 0 ? d.spend / d.totalOrders : 0;
-        const perDayDeliveredRevenue = (d.deliveredRevenue != null ? d.deliveredRevenue : (d.totalOrders > 0 ? d.revenue * (d.deliveredOrders / d.totalOrders) : 0));
-        const r = d.spend > 0 ? perDayDeliveredRevenue / d.spend : 0;
+// --- NEW MODULES ---
 
-        // Updated RTO% calculation to include Cancelled in numerator and denominator:
-        // RTO% = (RTO + Cancelled) / (Delivered + RTO + Cancelled)
-        const denom = (d.deliveredOrders || 0) + (d.rtoOrders || 0) + (d.cancelledOrders || 0);
-        const rtoPercent = denom > 0 ? (( (d.rtoOrders || 0) + (d.cancelledOrders || 0) ) / denom) : 0;
-
-        performanceTableBody.innerHTML += `<tr class="border-b border-slate-100"><td class="py-3 px-4 font-medium">${new Date(d.date).toLocaleDateString('en-GB', { day: 'short', month: 'short', timeZone: 'UTC' })}</td><td class="py-3 px-4 text-right">${formatCurrency(d.spend)}</td><td class="py-3 px-4 text-right">${formatNumber(d.totalOrders)}</td><td class="py-3 px-4 text-right">${formatCurrency(d.revenue)}</td><td class="py-3 px-4 text-right">${formatCurrency(c)}</td><td class="py-3 px-4 text-right font-semibold">${r.toFixed(2)}x</td><td class="py-3 px-4 text-right text-green-600">${formatNumber(d.deliveredOrders)}</td><td class="py-3 px-4 text-right text-red-600">${formatNumber(d.rtoOrders)}</td><td class="py-3 px-4 text-right text-gray-600">${formatNumber(d.cancelledOrders || 0)}</td><td class="py-3 px-4 text-right text-yellow-600">${formatNumber(d.inTransitOrders || 0)}</td><td class="py-3 px-4 text-right text-blue-600">${formatNumber(d.processingOrders || 0)}</td><td class="py-3 px-4 text-right text-red-600 font-medium">${formatPercent(rtoPercent)}</td></tr>`;
-    });
-}
-
-function renderAdPerformanceCharts() {
-    if (spendRevenueChartInstance) spendRevenueChartInstance.destroy();
-    if (orderStatusChartInstance) orderStatusChartInstance.destroy();
-    const labels = performanceData.map(d => new Date(d.date).toLocaleDateString('en-GB', { day: 'short', month: 'short', timeZone: 'UTC' }));
-    spendRevenueChartInstance = new Chart(spendRevenueChartCanvas, {
-        type: 'line',
-        data: {
-            labels,
-            datasets: [
-                { label: 'Ad Spend', data: performanceData.map(d => d.spend), borderColor: '#ef4444', backgroundColor: '#fee2e2', fill: true, yAxisID: 'y' },
-                { label: 'Revenue', data: performanceData.map(d => d.revenue), borderColor: '#22c55e', backgroundColor: '#dcfce7', fill: true, yAxisID: 'y' }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { title: { display: true, text: 'Spend vs. Revenue' } },
-            scales: { y: { beginAtZero: true } }
+function renderCustomerSegments(sortKey = 'spent', sortOrder = 'desc') {
+    const customerMap = {};
+    
+    allOrders.forEach(o => {
+        const key = (o.name || 'Unknown').trim();
+        if(!customerMap[key]) {
+            customerMap[key] = { name: key, count: 0, spent: 0, orders: [] };
         }
+        customerMap[key].count += 1;
+        customerMap[key].spent += parseFloat(o.total) || 0;
+        customerMap[key].orders.push({id: o.id, date: o.date, amount: parseFloat(o.total), items: o.items || []});
     });
-    const totals = performanceData.reduce((a, d) => (a.delivered += d.deliveredOrders, a.rto += d.rtoOrders, a.cancelled += d.cancelledOrders, a), { delivered: 0, rto: 0, cancelled: 0 });
-    orderStatusChartInstance = new Chart(orderStatusChartCanvas, {
+
+    const customers = Object.values(customerMap);
+    customers.forEach(c => {
+        c.aov = c.count > 0 ? c.spent / c.count : 0;
+    });
+
+    // Categories
+    const loyal = customers.filter(c => c.count > 2 || c.spent > 5000);
+    const repeat = customers.filter(c => c.count === 2);
+    const oneTime = customers.filter(c => c.count === 1);
+
+    // Update Counts
+    document.getElementById('seg-vip-count').textContent = loyal.length;
+    document.getElementById('seg-repeat-count').textContent = repeat.length;
+    document.getElementById('seg-new-count').textContent = oneTime.length;
+
+    // Render Chart
+    if (customerSegmentChartInstance) customerSegmentChartInstance.destroy();
+    customerSegmentChartInstance = new Chart(customerSegmentChartCanvas, {
         type: 'doughnut',
         data: {
-            labels: ['Delivered', 'RTO', 'Cancelled'],
-            datasets: [{ data: [totals.delivered, totals.rto, totals.cancelled], backgroundColor: ['#22c55e', '#ef4444', '#64748b'] }]
+            labels: ['Loyal', 'Repeat', 'One-Time'],
+            datasets: [{
+                data: [loyal.length, repeat.length, oneTime.length],
+                backgroundColor: ['#4f46e5', '#8b5cf6', '#cbd5e1'],
+                borderWidth: 0
+            }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, cutout: '70%', plugins: { legend: { position: 'right' } } }
+    });
+
+    // Sort & Limit
+    let sortedList = [...loyal];
+    sortedList.sort((a,b) => {
+        let valA = a[sortKey];
+        let valB = b[sortKey];
+        if (sortKey === 'name') return sortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+        return sortOrder === 'asc' ? valA - valB : valB - valA;
+    });
+
+    const limitVal = customerLimitFilter ? customerLimitFilter.value : '10';
+    if (limitVal !== 'all') {
+        sortedList = sortedList.slice(0, parseInt(limitVal));
+    }
+
+    // Render Table
+    vipCustomerListEl.innerHTML = sortedList.map(c => `
+        <tr class="border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors" onclick="toggleCustomerRow('${c.name.replace(/'/g, "\\'")}')">
+            <td class="py-3 px-6 font-medium text-slate-800">${c.name}</td>
+            <td class="py-3 px-6 text-center text-slate-600">${c.count}</td>
+            <td class="py-3 px-6 text-right font-bold text-emerald-600">${formatCurrency(c.spent)}</td>
+            <td class="py-3 px-6 text-right text-slate-500">${formatCurrency(c.aov)}</td>
+        </tr>
+        <tr id="cust-detail-${c.name.replace(/\s+/g, '-')}" class="details-row hidden">
+            <td colspan="4" class="p-4">
+                <div class="bg-white rounded-lg border border-slate-200 p-4">
+                     <p class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Order History</p>
+                     <div class="space-y-2">
+                        ${c.orders.map(o => `
+                            <div class="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
+                                <div><span class="font-bold text-indigo-600">#${o.id}</span> <span class="text-slate-500 mx-2">${o.date}</span></div>
+                                <div class="text-xs text-slate-500 italic truncate max-w-[200px]">${o.items.map(i=>i.sku||i.name).join(', ')}</div>
+                                <div class="font-medium">${formatCurrency(o.amount)}</div>
+                            </div>
+                        `).join('')}
+                     </div>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function toggleCustomerRow(name) {
+    const id = `cust-detail-${name.replace(/\s+/g, '-')}`;
+    const el = document.getElementById(id);
+    if(el) el.classList.toggle('hidden');
+}
+
+function renderReturnsAnalysis() {
+    const [startDate, endDate] = calculateDateRange(returnsDatePreset, returnsStartDateFilterEl.value, returnsEndDateFilterEl.value);
+    
+    let filteredOrders = allOrders;
+    if (startDate && endDate) {
+        filteredOrders = allOrders.filter(o => {
+            const d = new Date(o.date);
+            return d >= startDate && d <= endDate;
+        });
+    }
+
+    const rtoOrders = filteredOrders.filter(o => o.status === 'RTO');
+    const totalRTO = rtoOrders.length;
+    const rtoRate = filteredOrders.length > 0 ? (totalRTO / filteredOrders.length) : 0;
+
+    // KPIs
+    const kpiRate = document.getElementById('kpi-rto-rate');
+    kpiRate.innerHTML = `<span class="text-xs text-slate-500 uppercase font-bold">Return Rate</span><span class="text-2xl font-bold text-slate-800 mt-1">${formatPercent(rtoRate)}</span>`;
+    
+    const kpiCount = document.getElementById('kpi-rto-count');
+    kpiCount.innerHTML = `<span class="text-xs text-slate-500 uppercase font-bold">Total Returns</span><span class="text-2xl font-bold text-slate-800 mt-1">${totalRTO}</span>`;
+    
+    const kpiCost = document.getElementById('kpi-rto-cost');
+    kpiCost.innerHTML = `<span class="text-xs text-slate-500 uppercase font-bold">Est. Loss</span><span class="text-2xl font-bold text-rose-600 mt-1">${formatCurrency(totalRTO * 150)}</span><span class="text-xs text-slate-400">@ ₹150/return</span>`; 
+
+    document.getElementById('total-rto-val').textContent = totalRTO;
+
+    // Products Analysis
+    const productCount = {};
+    rtoOrders.forEach(o => {
+        (o.items || []).forEach(i => {
+            const name = i.name || 'Unknown';
+            productCount[name] = (productCount[name] || 0) + 1;
+        });
+    });
+    
+    const topProducts = Object.entries(productCount).sort((a,b) => b[1] - a[1]).slice(0, 5);
+    
+    if (rtoProductChartInstance) rtoProductChartInstance.destroy();
+    rtoProductChartInstance = new Chart(rtoProductChartCanvas, {
+        type: 'bar',
+        data: {
+            labels: topProducts.map(p => p[0].substring(0,15)+'...'),
+            datasets: [{
+                label: 'Return Count',
+                data: topProducts.map(p => p[1]),
+                backgroundColor: '#f43f5e',
+                borderRadius: 4
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } }
+        }
+    });
+
+    // City Analysis
+    const cityCount = {};
+    rtoOrders.forEach(o => {
+        if (o.address) {
+            const parts = o.address.split(',');
+            const city = parts.length > 1 ? parts[parts.length - 1].trim() : 'Unknown';
+            cityCount[city] = (cityCount[city] || 0) + 1;
+        }
+    });
+    const topCities = Object.entries(cityCount).sort((a,b) => b[1] - a[1]).slice(0, 10);
+    
+    rtoCityListEl.innerHTML = topCities.map(c => `
+        <tr class="border-b border-slate-50">
+            <td class="py-3 px-6 text-slate-800">${c[0]}</td>
+            <td class="py-3 px-6 text-center font-bold text-rose-600">${c[1]}</td>
+            <td class="py-3 px-6 text-right text-slate-500">${formatPercent(c[1]/totalRTO)}</td>
+        </tr>
+    `).join('');
+}
+
+function renderProfitabilityDashboard(adData, startDate, endDate) {
+    if (!startDate || !endDate) return;
+
+    const dailyStats = {};
+    let curr = new Date(startDate);
+    let safetyCounter = 0;
+    while (curr <= endDate && safetyCounter < 365) {
+        dailyStats[curr.toISOString().split('T')[0]] = { sales: 0, spend: 0 };
+        curr.setDate(curr.getDate() + 1);
+        safetyCounter++;
+    }
+
+    if (allOrders && Array.isArray(allOrders)) {
+        allOrders.forEach(o => {
+            if (o.status !== 'Cancelled' && o.date) {
+                try {
+                    const d = new Date(o.date).toISOString().split('T')[0];
+                    if (dailyStats[d]) dailyStats[d].sales += parseFloat(o.total || 0);
+                } catch(e) {}
+            }
+        });
+    }
+
+    if (adData && Array.isArray(adData)) {
+        adData.forEach(ad => {
+            if (ad.date) {
+                try {
+                    const d = new Date(ad.date).toISOString().split('T')[0];
+                    if (dailyStats[d]) dailyStats[d].spend += (ad.spend || 0);
+                } catch(e) {}
+            }
+        });
+    }
+
+    let totalSales = 0, totalSpend = 0;
+    const dates = Object.keys(dailyStats).sort();
+    const profitData = dates.map(d => {
+        const s = dailyStats[d];
+        totalSales += s.sales;
+        totalSpend += s.spend;
+        return s.sales - s.spend;
+    });
+
+    if (document.getElementById('profit-kpi-sales')) {
+        document.getElementById('profit-kpi-sales').textContent = formatCurrency(totalSales);
+        document.getElementById('profit-kpi-spend').textContent = formatCurrency(totalSpend);
+        document.getElementById('profit-kpi-net').textContent = formatCurrency(totalSales - totalSpend);
+    }
+
+    if (profitChartInstance) profitChartInstance.destroy();
+    if (profitTrendChartCanvas) {
+        profitChartInstance = new Chart(profitTrendChartCanvas, {
+            type: 'line',
+            data: {
+                labels: dates.map(d => new Date(d).toLocaleDateString('en-US', {month:'short', day:'numeric'})),
+                datasets: [{
+                    label: 'Marketing Profit',
+                    data: profitData,
+                    borderColor: '#4f46e5',
+                    backgroundColor: 'rgba(79, 70, 229, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+        });
+    }
+}
+
+function renderAdAnalysis() {
+    const paymentFilter = adAnalysisPaymentFilter ? adAnalysisPaymentFilter.value : 'All';
+
+    // Mock analysis linking ad sets to payment methods
+    const analysisData = adsetPerformanceData.map(ad => {
+        const matchedOrders = allOrders.filter(o => 
+            (o.tags && o.tags.includes(ad.name)) || 
+            (ad.name.toLowerCase().includes(o.platform.toLowerCase()))
+        );
+        
+        let relatedOrders = matchedOrders.length > 0 ? matchedOrders : allOrders.slice(0, Math.min(allOrders.length, ad.totalOrders));
+
+        if (paymentFilter !== 'All') {
+            relatedOrders = relatedOrders.filter(o => {
+                const pm = (o.paymentMethod || '').toUpperCase();
+                return pm.includes(paymentFilter.toUpperCase()) || (paymentFilter === 'PREPAID' && !pm.includes('COD'));
+            });
+        }
+
+        const codCount = relatedOrders.filter(o => (o.paymentMethod || '').toLowerCase().includes('cod')).length;
+        const prepaidCount = relatedOrders.filter(o => !(o.paymentMethod || '').toLowerCase().includes('cod')).length;
+        const totalConversions = codCount + prepaidCount;
+        
+        const clicks = Math.floor(ad.spend / 15) || totalConversions * 10;
+        const convRate = clicks > 0 ? (totalConversions / clicks) * 100 : 0;
+
+        return {
+            name: ad.name,
+            clicks: clicks,
+            conversions: totalConversions,
+            cod: codCount,
+            prepaid: prepaidCount,
+            convRate: convRate
+        };
+    }).sort((a,b) => b.conversions - a.conversions);
+
+    adAnalysisTableBody.innerHTML = analysisData.map(d => `
+        <tr class="border-b border-slate-50 hover:bg-slate-50">
+            <td class="p-4 font-semibold text-slate-800">${d.name}</td>
+            <td class="p-4 text-slate-500">${formatNumber(d.clicks)}</td>
+            <td class="p-4 font-bold text-indigo-700">${formatNumber(d.conversions)}</td>
+            <td class="p-4 font-bold text-rose-500">${formatNumber(d.cod)}</td>
+            <td class="p-4 font-bold text-emerald-600">${formatNumber(d.prepaid)}</td>
+            <td class="p-4 font-mono text-slate-600">${d.convRate.toFixed(2)}%</td>
+        </tr>
+    `).join('');
+}
+
+function renderAdRanking() {
+    const sortedData = [...adsetPerformanceData].sort((a, b) => {
+        const roasA = a.spend > 0 ? a.deliveredRevenue / a.spend : 0;
+        const roasB = b.spend > 0 ? b.deliveredRevenue / b.spend : 0;
+        return roasB - roasA;
+    });
+    const top5 = sortedData.slice(0, 5);
+
+    adRankingListEl.innerHTML = '';
+    if (top5.length === 0) {
+        adRankingListEl.innerHTML = '<p class="text-slate-400">No data available.</p>';
+    } else {
+        top5.forEach((item, index) => {
+            const roas = item.spend > 0 ? item.deliveredRevenue / item.spend : 0;
+            const rankColor = index === 0 ? 'text-amber-500' : 'text-slate-500';
+            const icon = index === 0 ? '🏆' : `#${index + 1}`;
+            
+            adRankingListEl.innerHTML += `
+                <div class="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-100 hover:shadow-sm transition-shadow">
+                    <div class="flex items-center gap-4 overflow-hidden">
+                        <span class="text-xl font-bold ${rankColor}">${icon}</span>
+                        <div class="truncate">
+                            <p class="font-bold text-slate-800 text-sm truncate">${item.name}</p>
+                            <p class="text-xs text-slate-500 mt-0.5">${formatNumber(item.totalOrders)} orders • ${formatCurrency(item.spend)} spend</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-lg font-bold text-indigo-600">${roas.toFixed(2)}x</p>
+                        <p class="text-xs text-slate-500 uppercase tracking-wide font-semibold">ROAS</p>
+                    </div>
+                </div>
+            `;
+        });
+    }
+
+    if (adRankingChartInstance) adRankingChartInstance.destroy();
+    const labels = top5.map(i => i.name.length > 15 ? i.name.substring(0, 15) + '...' : i.name);
+    const dataRoas = top5.map(i => i.spend > 0 ? (i.deliveredRevenue / i.spend) : 0);
+
+    adRankingChartInstance = new Chart(adRankingChartCanvas, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'ROAS',
+                data: dataRoas,
+                backgroundColor: ['#4f46e5', '#6366f1', '#818cf8', '#a5b4fc', '#c7d2fe'],
+                borderRadius: 6
+            }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: { title: { display: true, text: 'Order Status Breakdown' } }
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { beginAtZero: true, grid: { display: false }, title: { display: true, text: 'ROAS' } },
+                x: { grid: { display: false } }
+            }
         }
     });
 }
 
-// === NEW FUNCTION (from adset-performance.js, with fixes) ===
-// Calculates and display totals in the summary card
 function updateAdsetSummary(data) {
   const card = document.getElementById("adsetSummaryCard");
   if (!card) return;
-
-  if (!data || data.length === 0) {
-    card.classList.add("hidden");
-    return;
-  }
+  if (!data || data.length === 0) { card.classList.add("hidden"); return; }
 
   const totals = data.reduce(
     (acc, item) => {
@@ -499,67 +1092,41 @@ function updateAdsetSummary(data) {
       acc.deliveredRevenue += parseFloat(item.deliveredRevenue) || 0;
       acc.rto += parseInt(item.rtoOrders) || 0;
       acc.cancelled += parseInt(item.cancelledOrders) || 0;
-      acc.inTransit += parseInt(item.inTransitOrders) || 0; // <--- ADDED THIS
+      acc.inTransit += parseInt(item.inTransitOrders) || 0;
       acc.processing += parseInt(item.processingOrders) || 0;
       return acc;
     },
     { spend: 0, totalOrders: 0, delivered: 0, deliveredRevenue: 0, rto: 0, cancelled: 0, inTransit: 0, processing: 0}
   );
 
-  // --- Standard Metrics ---
   const totalRoas = totals.spend > 0 ? (totals.deliveredRevenue / totals.spend) : 0;
-
-  // --- 🧮 Effective ROAS Calculation ---
-  // 1. Calculate Global Delivered AOV (Revenue / Delivered Orders)
   const globalDeliveredAov = totals.delivered > 0 ? totals.deliveredRevenue / totals.delivered : 0;
-  
-  // 2. Calculate Global RTO %
   const totalDenom = totals.delivered + totals.rto + totals.cancelled;
   const globalRtoRate = totalDenom > 0 ? (totals.rto + totals.cancelled) / totalDenom : 0;
-  
-  // 3. Calculate Projected Revenue from In-Transit
   const totalPipelineOrders =(totals.inTransit || 0) + (totals.processing || 0);
   const projectedInTransitRevenue =totalPipelineOrders * (1 - globalRtoRate) * globalDeliveredAov;
-
-  
-  // 4. Final Calculation
   const projectedTotalRevenue = totals.deliveredRevenue + projectedInTransitRevenue;
   const totalEffRoas = totals.spend > 0 ? projectedTotalRevenue / totals.spend : 0;
 
-  // --- Update DOM ---
   document.getElementById("totalSpend").textContent = formatCurrency(totals.spend);
   document.getElementById("totalRevenue").textContent = formatCurrency(totals.deliveredRevenue);
   document.getElementById("totalOrders").textContent = formatNumber(totals.totalOrders);
   document.getElementById("totalDelivered").textContent = formatNumber(totals.delivered);
   document.getElementById("totalRTO").textContent = formatNumber(totals.rto);
   document.getElementById("totalCancelled").textContent = formatNumber(totals.cancelled);
-  
-  const roasEl = document.getElementById("totalRoas");
-  if (roasEl) roasEl.textContent = `${totalRoas.toFixed(2)}x`;
-
-  const effRoasEl = document.getElementById("totalEffRoas");
-  if (effRoasEl) effRoasEl.textContent = `${totalEffRoas.toFixed(2)}x`; // <--- Update UI
+  document.getElementById("totalRoas").textContent = `${totalRoas.toFixed(2)}x`;
+  document.getElementById("totalEffRoas").textContent = `${totalEffRoas.toFixed(2)}x`;
 
   card.classList.remove("hidden");
 }
 
-
-// === UPDATED FUNCTION ===
-// Renders Adset dashboard, now with sorting and summary card
 function renderAdsetPerformanceDashboard() {
-    
-    updateAdsetSummary(adsetPerformanceData);
-    
-    // Sort data if sort key is set
     if (currentSortKey) {
         adsetPerformanceData.sort((a, b) => {
             let valA = a[currentSortKey];
             let valB = b[currentSortKey];
-
             if (currentSortKey === 'name') {
-                 return currentSortOrder === "asc"
-                   ? String(valA).localeCompare(String(valB))
-                   : String(valB).localeCompare(String(valA));
+                 return currentSortOrder === "asc" ? String(valA).localeCompare(String(valB)) : String(valB).localeCompare(String(valA));
             } else {
                 valA = parseFloat(valA) || 0;
                 valB = parseFloat(valB) || 0;
@@ -568,89 +1135,73 @@ function renderAdsetPerformanceDashboard() {
         });
     }
     
-    // Render table body
     adsetPerformanceTableBody.innerHTML = '';
     if (!adsetPerformanceData || adsetPerformanceData.length === 0) {
-        adsetPerformanceTableBody.innerHTML = `<tr><td colspan="14" class="p-4 text-center text-slate-500">No ad set data found for this period.</td></tr>`;
+        adsetPerformanceTableBody.innerHTML = `<tr><td colspan="14" class="p-8 text-center text-slate-400">No ad set data found for this period.</td></tr>`;
         return;
     }
     
     adsetPerformanceData.forEach(adset => {
         const t = adset.totalOrders || 0;
-
-        // RTO% Logic
         const denomAdset = (adset.deliveredOrders || 0) + (adset.rtoOrders || 0) + (adset.cancelledOrders || 0);
         const o = denomAdset > 0 ? ((adset.rtoOrders || 0) + (adset.cancelledOrders || 0)) / denomAdset : 0;
         adset.rtoPercent = o; 
-
         const spend = adset.spend || 0;
         const costPerOrder = (spend > 0 && t > 0) ? (spend / t) : 0;
         adset.cpo = costPerOrder; 
-        
         const r = spend > 0 ? (adset.deliveredRevenue || 0) / spend : 0;
         adset.roas = r; 
-
-        // --- 🧮 Calculate Effective ROAS (Row Level) ---
         const deliveredAov = adset.deliveredOrders > 0 ? adset.deliveredRevenue / adset.deliveredOrders : 0;
         const pipelineOrders =(adset.inTransitOrders || 0)+(adset.processingOrders || 0);
         const projectedRev =adset.deliveredRevenue+(pipelineOrders * (1 - o) * deliveredAov);
         const effRoas = spend > 0 ? projectedRev / spend : 0;
-        adset.effectiveRoas = effRoas; // Store for PDF/Sorting
+        adset.effectiveRoas = effRoas; 
 
         let adsetRow = `
-          <tr class="border-b border-slate-200 bg-slate-50 cursor-pointer" data-adset-id="${adset.id}">
-            <td class="py-3 px-4 font-bold text-sm text-slate-800 text-left">${adset.name}</td>
-            <td class="py-3 px-4 text-sm text-slate-500 text-left">${(adset.terms || []).length} terms</td>
-            <td class="py-3 px-4 text-right font-bold">${formatCurrency(spend)}</td>
-            <td class="py-3 px-4 text-right font-bold">${formatNumber(t)}</td>
-            <td class="py-3 px-4 text-right font-bold text-green-600">${formatNumber(adset.deliveredOrders)}</td>
-            <td class="py-3 px-4 text-right font-bold">${formatCurrency(adset.deliveredRevenue)}</td>
-            <td class="py-3 px-4 text-right font-bold text-red-600">${formatNumber(adset.rtoOrders)}</td>
-            <td class="py-3 px-4 text-right font-bold text-slate-500">${formatNumber(adset.cancelledOrders)}</td>
-            <td class="py-3 px-4 text-right font-bold text-blue-600">${formatNumber(adset.inTransitOrders || 0)}</td>
-            <td class="py-3 px-4 text-right font-bold text-yellow-600">${formatNumber(adset.processingOrders || 0)}</td>
-            <td class="py-3 px-4 text-right font-bold text-red-600">${formatPercent(o)}</td>
-            <td class="py-3 px-4 text-right font-bold">${formatCurrency(costPerOrder)}</td>
-            <td class="py-3 px-4 text-right font-bold">${r.toFixed(2)}x</td>
-            <td class="py-3 px-4 text-right font-bold text-indigo-600">${effRoas.toFixed(2)}x</td>
+          <tr class="border-b border-gray-100 bg-slate-50/50 hover:bg-slate-100 cursor-pointer transition-colors" data-adset-id="${adset.id}">
+            <td class="py-3 px-4 font-semibold text-sm text-slate-900 text-left">${adset.name}</td>
+            <td class="py-3 px-4 text-xs text-slate-500 text-left uppercase tracking-wide">${(adset.terms || []).length} terms</td>
+            <td class="py-3 px-4 text-right font-medium text-slate-600">${formatCurrency(spend)}</td>
+            <td class="py-3 px-4 text-right font-bold text-slate-900">${formatNumber(t)}</td>
+            <td class="py-3 px-4 text-right font-bold text-emerald-600">${formatNumber(adset.deliveredOrders)}</td>
+            <td class="py-3 px-4 text-right font-medium text-slate-600">${formatCurrency(adset.deliveredRevenue)}</td>
+            <td class="py-3 px-4 text-right font-bold text-rose-500">${formatNumber(adset.rtoOrders)}</td>
+            <td class="py-3 px-4 text-right font-bold text-slate-400">${formatNumber(adset.cancelledOrders)}</td>
+            <td class="py-3 px-4 text-right font-bold text-blue-500">${formatNumber(adset.inTransitOrders || 0)}</td>
+            <td class="py-3 px-4 text-right font-bold text-amber-500">${formatNumber(adset.processingOrders || 0)}</td>
+            <td class="py-3 px-4 text-right font-bold text-rose-600">${formatPercent(o)}</td>
+            <td class="py-3 px-4 text-right font-medium text-slate-600">${formatCurrency(costPerOrder)}</td>
+            <td class="py-3 px-4 text-right font-bold text-slate-800">${r.toFixed(2)}x</td>
+            <td class="py-3 px-4 text-right font-bold text-indigo-600 bg-indigo-50/50 rounded-r-lg">${effRoas.toFixed(2)}x</td>
           </tr>`;
 
         (adset.terms || []).forEach(term => {
             const tTerm = term.totalOrders || 0;
-            const denomTerm = (term.deliveredOrders || 0) + (term.rtoOrders || 0) + (term.cancelledOrders || 0);
-            const oTerm = denomTerm > 0 ? ((term.rtoOrders || 0) + (term.cancelledOrders || 0)) / denomTerm : 0;
             const spendTerm = term.spend || 0;
             const costPerOrderTerm = (spendTerm > 0 && tTerm > 0) ? (spendTerm / tTerm) : 0;
             const rTerm = spendTerm > 0 ? (term.deliveredRevenue || 0) / spendTerm : 0;
 
-            // --- 🧮 Term Level Eff ROAS ---
-            const delAovTerm = term.deliveredOrders > 0 ? term.deliveredRevenue / term.deliveredOrders : 0;
-            const pipelineOrdersTerm =(term.inTransitOrders || 0)+(term.processingOrders || 0);
-            const projRevTerm =term.deliveredRevenue+(pipelineOrdersTerm * (1 - oTerm) * delAovTerm);
-            const effRoasTerm = spendTerm > 0 ? projRevTerm / spendTerm : 0;
-
             adsetRow += `
-              <tr class="adset-term-row hidden border-b border-slate-100" data-parent-adset-id="${adset.id}">
-                <td class="py-2 px-8 text-sm text-slate-600 text-left" colspan="2">${term.name || term.id}</td>
-                <td class="py-2 px-4 text-right text-sm">${formatCurrency(spendTerm)}</td>
-                <td class="py-2 px-4 text-right text-sm">${formatNumber(tTerm)}</td>
-                <td class="py-2 px-4 text-right text-sm text-green-600">${formatNumber(term.deliveredOrders)}</td>
-                <td class="py-2 px-4 text-right text-sm">${formatCurrency(term.deliveredRevenue)}</td>
-                <td class="py-2 px-4 text-right text-sm text-red-600">${formatNumber(term.rtoOrders)}</td>
-                <td class="py-2 px-4 text-right text-sm text-slate-500">${formatNumber(term.cancelledOrders)}</td>
-                <td class="py-2 px-4 text-right text-sm text-blue-600">${formatNumber(term.inTransitOrders || 0)}</td>
-                <td class="py-2 px-4 text-right text-sm text-yellow-600">${formatNumber(term.processingOrders || 0)}</td>
-                <td class="py-2 px-4 text-right text-sm text-red-600">${formatPercent(oTerm)}</td>
-                <td class="py-2 px-4 text-right text-sm">${formatCurrency(costPerOrderTerm)}</td>
-                <td class="py-2 px-4 text-right text-sm">${rTerm.toFixed(2)}x</td>
-                <td class="py-2 px-4 text-right text-sm text-indigo-600">${effRoasTerm.toFixed(2)}x</td>
+              <tr class="adset-term-row hidden border-b border-gray-100 bg-white hover:bg-gray-50 transition-colors" data-parent-adset-id="${adset.id}">
+                <td class="py-2 px-8 text-sm text-slate-500 text-left pl-12 flex items-center gap-2"><div class="w-1.5 h-1.5 rounded-full bg-slate-300"></div>${term.name || term.id}</td>
+                <td class="py-2 px-4 text-right text-xs text-slate-400 italic">Term</td>
+                <td class="py-2 px-4 text-right text-sm text-slate-500">${formatCurrency(spendTerm)}</td>
+                <td class="py-2 px-4 text-right text-sm font-medium text-slate-700">${formatNumber(tTerm)}</td>
+                <td class="py-2 px-4 text-right text-sm text-emerald-600">${formatNumber(term.deliveredOrders)}</td>
+                <td class="py-2 px-4 text-right text-sm text-slate-500">${formatCurrency(term.deliveredRevenue)}</td>
+                <td class="py-2 px-4 text-right text-sm text-rose-500">${formatNumber(term.rtoOrders)}</td>
+                <td class="py-2 px-4 text-right text-sm text-slate-400">${formatNumber(term.cancelledOrders)}</td>
+                <td class="py-2 px-4 text-right text-sm text-blue-500">${formatNumber(term.inTransitOrders || 0)}</td>
+                <td class="py-2 px-4 text-right text-sm text-amber-500">${formatNumber(term.processingOrders || 0)}</td>
+                <td class="py-2 px-4 text-right text-sm text-rose-600">--</td>
+                <td class="py-2 px-4 text-right text-sm text-slate-500">${formatCurrency(costPerOrderTerm)}</td>
+                <td class="py-2 px-4 text-right text-sm font-medium text-slate-700">${rTerm.toFixed(2)}x</td>
+                <td class="py-2 px-4 text-right text-sm font-bold text-indigo-500">--</td>
               </tr>`;
         });
-
         adsetPerformanceTableBody.innerHTML += adsetRow;
     });
 
-    // Add click listeners for expandable rows
     adsetPerformanceTableBody.querySelectorAll('tr[data-adset-id]').forEach(row => {
         row.addEventListener('click', () => {
             const adsetId = row.dataset.adsetId;
@@ -661,30 +1212,60 @@ function renderAdsetPerformanceDashboard() {
     });
 }
 
-// ... (rest of your existing functions: renderAllDashboard, renderPlatformFilters, etc.)
-function renderAllDashboard(){const[s,e]=calculateDateRange(activeDatePreset,startDateFilterEl.value,endDateFilterEl.value);let o=[...allOrders];if(s&&e){o=o.filter(t=>{const d=new Date(t.date);return d>=s&&d<=e})}if(activePlatformFilter!=='All')o=o.filter(t=>t.platform===activePlatformFilter);if(activeStatusFilter!=='All')o=o.filter(t=>t.status===activeStatusFilter);const t=[...o].sort((a,b)=>new Date(b.date)-new Date(a.date));renderPlatformFilters();renderOrders(t);updateDashboardKpis(o)}
-function renderPlatformFilters(){platformFiltersEl.innerHTML=['All','Amazon','Shopify'].map(p=>`<button data-filter="${p}" class="filter-btn px-3 py-1 text-sm rounded-md ${activePlatformFilter===p?'active':''}">${p}</button>`).join('');platformFiltersEl.querySelectorAll('.filter-btn').forEach(b=>{b.addEventListener('click',()=>{activePlatformFilter=b.dataset.filter;renderAllDashboard()})})}
-function renderInsightsPlatformFilters(){insightsPlatformFiltersEl.innerHTML=['All','Amazon','Shopify'].map(p=>`<button data-filter="${p}" class="filter-btn px-3 py-1 text-sm rounded-md ${insightsPlatformFilter===p?'active':''}">${p}</button>`).join('');insightsPlatformFiltersEl.querySelectorAll('.filter-btn').forEach(b=>{b.addEventListener('click',()=>{insightsPlatformFilter=b.dataset.filter;renderAllInsights()})})}
-function renderOrders(o){ordersListEl.innerHTML='';if(o.length===0){ordersListEl.innerHTML=`<tr><td colspan="6" class="p-4 text-center text-slate-500">No orders found.</td></tr>`;return}
-o.forEach(order=>{
-    const displayName = (order.name === 'N/A' && order.buyerName) ? order.buyerName : order.name;
-    const r=document.createElement('tr');
-    r.className=`order-row border-b border-slate-100 cursor-pointer`;
-    r.dataset.orderId=order.id;
-    r.innerHTML=`<td class="p-4"><img src="${platformLogos[order.platform]||''}" class="w-6 h-6" alt="${order.platform}"></td><td class="p-4 text-slate-600 text-sm">${order.date}</td><td class="p-4 font-semibold text-slate-700">${order.id}</td><td class="p-4 font-medium">${displayName}</td><td class="p-4">${formatCurrency(order.total)}</td><td class="p-4"><span class="px-2 py-1 text-xs font-semibold rounded-full ${getStatusBadge(order.status)}">${order.status}</span></td>`;
-    r.addEventListener('click',()=>openOrderModal(order.id));
-    ordersListEl.appendChild(r)
-})}
-function openOrderModal(o){
-    const order=allOrders.find(t=>t.id===o);
-    if(order){
-        selectedOrderId=order.id;
-        renderOrderDetails(order);
-        orderModal.classList.remove('modal-hidden');
-        orderModal.classList.add('modal-visible');
-    }
+function renderPlatformFilters() {
+    const container = document.getElementById('platform-filters');
+    const platforms = ['All', 'Shopify', 'Amazon'];
+
+    container.innerHTML = platforms.map(p => `
+        <button
+            class="px-4 py-2 text-sm font-medium rounded-md transition-all
+            ${activePlatformFilter === p
+                ? 'bg-indigo-600 text-white shadow'
+                : 'text-slate-600 hover:bg-white'}"
+            data-platform="${p}">
+            ${p}
+        </button>
+    `).join('');
+
+    container.querySelectorAll('button').forEach(btn => {
+        btn.onclick = () => {
+            activePlatformFilter = btn.dataset.platform;
+            renderAllDashboard();
+        };
+    });
 }
-function closeOrderModal(){orderModal.classList.add('modal-hidden');orderModal.classList.remove('modal-visible')}
+
+function renderSourceFilters() {
+    const container = document.getElementById('source-filters');
+    if (!container) return;
+
+    const sources = [
+        { key: 'All', label: 'All' },
+        { key: 'RapidShyp', label: 'RapidShyp' },
+        { key: 'DocPharma', label: 'DocPharma' }
+    ];
+
+    container.innerHTML = sources.map(s => `
+        <button
+            class="px-4 py-2 text-sm font-medium rounded-md transition-all
+            ${activeSourceFilter === s.key
+                ? 'bg-emerald-600 text-white shadow'
+                : 'text-slate-600 hover:bg-white'}"
+            data-source="${s.key}">
+            ${s.label}
+        </button>
+    `).join('');
+
+    container.querySelectorAll('button').forEach(btn => {
+        btn.onclick = () => {
+            activeSourceFilter = btn.dataset.source;
+            renderAllDashboard();
+        };
+    });
+}
+
+
+function renderInsightsPlatformFilters(){insightsPlatformFiltersEl.innerHTML=['All','Amazon','Shopify'].map(p=>`<button data-filter="${p}" class="filter-btn px-3 py-1 text-sm rounded-md ${insightsPlatformFilter===p?'active':''}">${p}</button>`).join('');insightsPlatformFiltersEl.querySelectorAll('.filter-btn').forEach(b=>{b.addEventListener('click',()=>{insightsPlatformFilter=b.dataset.filter;renderAllInsights()})})}
 function renderAllInsights(){const[s,e]=calculateDateRange(insightsDatePreset,insightsStartDateFilterEl.value,insightsEndDateFilterEl.value);let o=[...allOrders];if(s&&e){o=o.filter(t=>{const d=new Date(t.date);return d>=s&&d<=e})}if(insightsPlatformFilter!=='All'){o=o.filter(t=>t.platform===insightsPlatformFilter)}
 renderInsightsPlatformFilters();const t=calculateComparisonMetrics(o,allOrders,insightsDatePreset,s,e);updateInsightsKpis(o,t);renderInsightCharts(o,s,e)}
 function calculateDateRange(p,s,e){const n=new Date();const t=new Date(Date.UTC(n.getUTCFullYear(),n.getUTCMonth(),n.getUTCDate()));let a,d;switch(p){case'today':a=new Date(t);d=new Date(t);break;case'yesterday':a=new Date(t);a.setUTCDate(t.getUTCDate()-1);d=new Date(a);break;case'last_7_days':a=new Date(t);a.setUTCDate(t.getUTCDate()-6);d=new Date(t);break;case'mtd':a=new Date(Date.UTC(t.getUTCFullYear(),t.getUTCMonth(),1));d=new Date(t);break;case'last_month':const y=t.getUTCFullYear();const m=t.getUTCMonth();a=new Date(Date.UTC(y,m-1,1));d=new Date(Date.UTC(y,m,0));break;case'custom':if(!s)return[null,null];const[i,l,c]=s.split('-').map(Number);a=new Date(Date.UTC(i,l-1,c));if(e){const[u,f,h]=e.split('-').map(Number);d=new Date(Date.UTC(u,f-1,h))}else{d=new Date(a)}
@@ -692,15 +1273,25 @@ break;default:return[null,null]}
 d.setUTCHours(23,59,59,999);return[a,d]}
 function calculateComparisonMetrics(c,a,p,s,e){let t,d,l='';if(!s||!e)return{periodLabel:'',revenueTrend:'',ordersTrend:''};const o=insightsPlatformFilter==='All'?a:a.filter(r=>r.platform===insightsPlatformFilter);switch(p){case'last_7_days':t=new Date(s);t.setDate(s.getDate()-7);d=new Date(e);d.setDate(e.getDate()-7);l='vs Previous Week';break;case'mtd':case'last_month':t=new Date(s);t.setMonth(s.getMonth()-1);d=new Date(t.getFullYear(),t.getMonth()+1,0);l='vs Previous Month';break;default:return{periodLabel:'',revenueTrend:'',ordersTrend:''}}
 d.setHours(23,59,59,999);const r=o.filter(i=>{const n=new Date(i.date);return n>=t&&n<=d});const u=c.filter(i=>i.status!=='Cancelled').reduce((n,i)=>n+i.total,0);const f=r.filter(i=>i.status!=='Cancelled').reduce((n,i)=>n+i.total,0);const h=(n,i)=>{if(i===0)return n>0?'+100%':'+0%';const v=((n-i)/i)*100;return`${v>=0?'+':''}${v.toFixed(1)}%`};return{periodLabel:l,revenueTrend:h(u,f),ordersTrend:h(c.length,r.length)}}
-function updateDashboardKpis(o){const k={new:0,processing:0,shipped:0,cancelled:0};o.forEach(s=>{if(s.status==='New')k.new++;else if(s.status==='Processing')k.processing++;else if(s.status==='Shipped')k.shipped++;else if(s.status==='Cancelled')k.cancelled++});const renderKpi=(e,t,v,i)=>{e.innerHTML=`<div class="flex items-center">${i}<p class="text-sm font-medium text-slate-500 ml-2">${t}</p></div><p class="text-3xl font-bold text-slate-800 mt-2">${v}</p>`};renderKpi(dashboardKpiElements.newOrders,'New Orders',k.new,`<svg class="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>`);renderKpi(dashboardKpiElements.processing,'Processing',k.processing,`<svg class="w-6 h-6 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`);renderKpi(dashboardKpiElements.shipped,'Shipped',k.shipped,`<svg class="w-6 h-6 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17H6V6h11v4l4 4v2h-3zM6 6l6-4l6 4"></path></svg>`);renderKpi(dashboardKpiElements.cancelled,'Cancelled',k.cancelled,`<svg class="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>`)}
-function updateInsightsKpis(o,c){const a = o.filter(s => !['Cancelled', 'RTO'].includes(s.status));const t=a.reduce((s,r)=>s+r.total,0);const v=a.length>0?t/a.length:0;const l=o.length;const n=o.filter(s=>s.status==='New').length;const p=o.filter(s=>s.status==='Shipped').length;const r=0;const d=o.filter(s=>s.status==='Cancelled').length;const renderKpi=(e,i,u,f,h,m)=>{const g=h&&h.startsWith('+')?'text-green-500':'text-red-500';e.innerHTML=`<div class="flex items-center">${f}<p class="text-xs font-medium text-slate-500 ml-2">${i}</p></div><p class="text-2xl font-bold text-slate-800 mt-2">${u}</p>${h?`<p class="text-xs ${g} mt-1">${h} <span class="text-slate-400">${m}</span></p>`:`<p class="text-xs text-slate-400 mt-1">&nbsp;</p>`}`};renderKpi(insightsKpiElements.revenue.el,'Total Revenue',formatCurrency(t),`<svg class="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v.01"></path></svg>`,c.revenueTrend,c.periodLabel);renderKpi(insightsKpiElements.avgValue.el,'Avg. Value',formatCurrency(v),`<svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 6l3 6h10a2 2 0 001.79-1.11L21 8M6 18h12a2 2 0 002-2v-5a2 2 0 00-2-2H6a2 2 0 00-2 2v5a2 2 0 002 2z"></path></svg>`,'','');renderKpi(insightsKpiElements.allOrders.el,'All Orders',l,`<svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>`,c.ordersTrend,c.periodLabel);renderKpi(insightsKpiElements.new.el,'New Orders',n,`<svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>`,'','');renderKpi(insightsKpiElements.shipped.el,'Shipped',p,`<svg class="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17H6V6h11v4l4 4v2h-3zM6 6l6-4l6 4"></path></svg>`,'','');renderKpi(insightsKpiElements.rto.el,'RTO',r,`<svg class="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9l-5 5-5-5"></path></svg>`,'','');renderKpi(insightsKpiElements.cancelled.el,'Cancelled',d,`<svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>`,'','')}
+function updateDashboardKpis(o){const k={new:0,processing:0,shipped:0,cancelled:0};o.forEach(s=>{if(s.status==='New')k.new++;else if(s.status==='Processing')k.processing++;else if(s.status==='Shipped')k.shipped++;else if(s.status==='Cancelled')k.cancelled++});const renderKpi=(e,t,v,i)=>{e.innerHTML=`<div class="flex items-center">${i}<p class="text-xs font-semibold text-slate-500 uppercase tracking-wide ml-2">${t}</p></div><p class="text-3xl font-bold text-slate-900 mt-2 tracking-tight">${v}</p>`};renderKpi(dashboardKpiElements.newOrders,'New Orders',k.new,`<svg class="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>`);renderKpi(dashboardKpiElements.processing,'Processing',k.processing,`<svg class="w-6 h-6 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`);renderKpi(dashboardKpiElements.shipped,'Shipped',k.shipped,`<svg class="w-6 h-6 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17H6V6h11v4l4 4v2h-3zM6 6l6-4l6 4"></path></svg>`);renderKpi(dashboardKpiElements.cancelled,'Cancelled',k.cancelled,`<svg class="w-6 h-6 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>`)}
+function updateInsightsKpis(o,c){const a = o.filter(s => !['Cancelled', 'RTO'].includes(s.status));const t=a.reduce((s,r)=>s+r.total,0);const v=a.length>0?t/a.length:0;const l=o.length;const n=o.filter(s=>s.status==='New').length;const p=o.filter(s=>s.status==='Shipped').length;const r=0;const d=o.filter(s=>s.status==='Cancelled').length;const renderKpi=(e,i,u,f,h,m)=>{const g=h&&h.startsWith('+')?'text-emerald-500':'text-rose-500';e.innerHTML=`<div class="flex items-center">${f}<p class="text-xs font-semibold text-slate-500 uppercase tracking-wide ml-2">${i}</p></div><p class="text-2xl font-bold text-slate-900 mt-2">${u}</p>${h?`<p class="text-xs ${g} mt-1 font-medium">${h} <span class="text-slate-400 font-normal">${m}</span></p>`:`<p class="text-xs text-slate-400 mt-1">&nbsp;</p>`}`};renderKpi(insightsKpiElements.revenue.el,'Total Revenue',formatCurrency(t),`<svg class="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v.01"></path></svg>`,c.revenueTrend,c.periodLabel);renderKpi(insightsKpiElements.avgValue.el,'Avg. Value',formatCurrency(v),`<svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 6l3 6h10a2 2 0 001.79-1.11L21 8M6 18h12a2 2 0 002-2v-5a2 2 0 00-2-2H6a2 2 0 00-2 2v5a2 2 0 002 2z"></path></svg>`,'','');renderKpi(insightsKpiElements.allOrders.el,'All Orders',l,`<svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>`,c.ordersTrend,c.periodLabel);renderKpi(insightsKpiElements.new.el,'New Orders',n,`<svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>`,'','');renderKpi(insightsKpiElements.shipped.el,'Shipped',p,`<svg class="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17H6V6h11v4l4 4v2h-3zM6 6l6-4l6 4"></path></svg>`,'','');renderKpi(insightsKpiElements.rto.el,'RTO',r,`<svg class="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9l-5 5-5-5"></path></svg>`,'','');renderKpi(insightsKpiElements.cancelled.el,'Cancelled',d,`<svg class="w-5 h-5 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>`,'','')}
 function renderInsightCharts(o,s,e){if(revenueChartInstance)revenueChartInstance.destroy();if(platformChartInstance)platformChartInstance.destroy();if(paymentChartInstance)paymentChartInstance.destroy();const d={};if(s&&e){let c=new Date(s);while(c<=e){d[c.toISOString().split('T')[0]]=0;c.setDate(c.getDate()+1)}}
-o.forEach(r=>{if(r.status!=='Cancelled'){const i=new Date(r.date).toISOString().split('T')[0];if(d[i]!==undefined)d[i]+=r.total}});revenueChartInstance=new Chart(revenueChartCanvas,{type:'line',data:{labels:Object.keys(d).map(l=>new Date(l).toLocaleDateString('en-US',{timeZone:'UTC',month:'short',day:'numeric'})),datasets:[{label:'Revenue',data:Object.values(d),borderColor:'rgb(79, 70, 229)',backgroundColor:'rgba(79, 70, 229, 0.1)',fill:true,tension:0.1}]},options:{responsive:true,maintainAspectRatio:false,plugins:{title:{display:true,text:'Revenue Over Time'}}}});const p={Shopify:0,Amazon:0};o.forEach(r=>{if(r.status!=='Cancelled'&&p[r.platform]!==undefined)p[r.platform]+=r.total});platformChartInstance=new Chart(platformChartCanvas,{type:'doughnut',data:{labels:Object.keys(p),datasets:[{data:Object.values(p),backgroundColor:['#96bf48','#ff9900']}]},options:{responsive:true,maintainAspectRatio:false,plugins:{title:{display:true,text:'Revenue by Platform'}}}});const m={Prepaid:0,COD:0};o.forEach(r=>{if(r.paymentMethod){const i=r.paymentMethod.toLowerCase();if(i.includes("cod")||i.includes("cash")){m.COD++}else{m.Prepaid++}}});paymentChartInstance=new Chart(paymentChartCanvas,{type:'doughnut',data:{labels:Object.keys(m),datasets:[{data:Object.values(m),backgroundColor:['#10b981','#f59e0b']}]},options:{responsive:true,maintainAspectRatio:false,plugins:{title:{display:true,text:'Prepaid vs. COD'},tooltip:{callbacks:{label:c=>{const t=c.chart.data.datasets[0].data.reduce((a,b)=>a+b,0);const p=t>0?((c.raw/t)*100).toFixed(1)+'%':'0%';return`${c.label}: ${c.raw} (${p})`}}}}}})}
-function renderSettings(){const c=document.getElementById('seller-connections');c.innerHTML=connections.map(e=>`<div class="bg-white p-4 rounded-lg shadow-sm flex items-center justify-between"><div class="flex items-center"><img src="${platformLogos[e.name]}" class="w-10 h-10 mr-4"><div><p class="font-semibold text-lg">${e.name}</p><p class="text-sm text-slate-500">${e.status==='Connected'?e.user:'Click to connect'}</p></div></div><button data-platform="${e.name}" data-action="${e.status==='Connected'?'disconnect':'connect'}" class="connection-btn ${e.status==='Connected'?'font-medium text-sm text-red-600 hover:text-red-800':'font-medium text-sm text-white bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded-lg'}">${e.status==='Connected'?'Disconnect':'Connect'}</button></div>`).join('');document.querySelectorAll('.connection-btn').forEach(b=>b.addEventListener('click',e=>handleConnection(e.currentTarget.dataset.platform,e.currentTarget.dataset.action)))}
+o.forEach(r=>{if(r.status!=='Cancelled'){const i=new Date(r.date).toISOString().split('T')[0];if(d[i]!==undefined)d[i]+=r.total}});revenueChartInstance=new Chart(revenueChartCanvas,{type:'line',data:{labels:Object.keys(d).map(l=>new Date(l).toLocaleDateString('en-US',{timeZone:'UTC',month:'short',day:'numeric'})),datasets:[{label:'Revenue',data:Object.values(d),borderColor:'#4f46e5',backgroundColor:'rgba(79, 70, 229, 0.1)',fill:true,tension:0.3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{title:{display:false}},scales:{x:{grid:{display:false}},y:{grid:{color:'#f1f5f9'}}}}});const p={Shopify:0,Amazon:0};o.forEach(r=>{if(r.status!=='Cancelled'&&p[r.platform]!==undefined)p[r.platform]+=r.total});platformChartInstance=new Chart(platformChartCanvas,{type:'doughnut',data:{labels:Object.keys(p),datasets:[{data:Object.values(p),backgroundColor:['#10b981','#f59e0b']}]},options:{responsive:true,maintainAspectRatio:false,plugins:{title:{display:false}}}});const m={Prepaid:0,COD:0};o.forEach(r=>{if(r.paymentMethod){const i=r.paymentMethod.toLowerCase();if(i.includes("cod")||i.includes("cash")){m.COD++}else{m.Prepaid++}}});
+paymentChartInstance=new Chart(paymentChartCanvas,{type:'doughnut',data:{labels:Object.keys(m),datasets:[{data:Object.values(m),backgroundColor:['#6366f1','#f43f5e']}]},options:{responsive:true,maintainAspectRatio:false,plugins:{title:{display:false},tooltip:{callbacks:{label:c=>{const t=c.chart.data.datasets[0].data.reduce((a,b)=>a+b,0);const p=t>0?((c.raw/t)*100).toFixed(1)+'%':'0%';return`${c.label}: ${c.raw} (${p})`}}}}}})}
+function renderSettings(){const c=document.getElementById('seller-connections');c.innerHTML=connections.map(e=>`<div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between"><div class="flex items-center"><img src="${platformLogos[e.name]}" class="w-10 h-10 mr-4 rounded-lg bg-slate-50 p-1"><div><p class="font-bold text-slate-900">${e.name}</p><p class="text-sm text-slate-500">${e.status==='Connected'?e.user:'Click to connect'}</p></div></div><button data-platform="${e.name}" data-action="${e.status==='Connected'?'disconnect':'connect'}" class="connection-btn ${e.status==='Connected'?'text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100':'text-white bg-indigo-600 hover:bg-indigo-700'} px-4 py-2 rounded-lg text-sm font-medium transition-colors">${e.status==='Connected'?'Disconnect':'Connect'}</button></div>`).join('');document.querySelectorAll('.connection-btn').forEach(b=>b.addEventListener('click',e=>handleConnection(e.currentTarget.dataset.platform,e.currentTarget.dataset.action)))}
 function handleConnection(p,a){if(a==='connect'){showNotification(`Simulating connection to ${p}...`);setTimeout(()=>{showNotification(`Successfully connected to ${p}.`)},1500)}else if(a==='disconnect'){if(confirm(`Are you sure you want to disconnect from ${p}?`)){showNotification(`Disconnected from ${p}.`)}}}
 async function loadInitialData(){try{allOrders=await fetchOrdersFromServer();initializeAllFilters();navigate('orders-dashboard');setInterval(async()=>{if(['orders-dashboard','order-insights'].includes(currentView)){try{allOrders=await fetchOrdersFromServer();if(currentView==='orders-dashboard')renderAllDashboard();else renderAllInsights()}catch(e){console.error("Periodic refresh failed.")}}},120000)}catch(error){}}
-function initializeAllFilters(){statusFilterEl.innerHTML=['All Statuses','New','Processing','Shipped','Cancelled'].map(s=>`<option value="${s==='All Statuses'?'All':s}">${s}</option>`).join('');statusFilterEl.value=activeStatusFilter;statusFilterEl.addEventListener('change',e=>{activeStatusFilter=e.target.value;renderAllDashboard()});const d={'today':'Today','yesterday':'Yesterday','last_7_days':'Last 7 Days','mtd':'Month to Date','last_month':'Last Month','custom':'Custom Range...'};initializeDateFilters(insightsDatePresetFilter,insightsCustomDateContainer,insightsStartDateFilterEl,insightsEndDateFilterEl,'insightsDatePreset',renderAllInsights,d);initializeDateFilters(adDatePresetFilter,adCustomDateContainer,adStartDateFilterEl,adEndDateFilterEl,'adPerformanceDatePreset',handleAdPerformanceDateChange,d);initializeDateFilters(adsetDatePresetFilter,adsetCustomDateContainer,adsetStartDateFilterEl,adsetEndDateFilterEl,'adsetDatePreset',handleAdsetDateChange,d);initializeDateFilters(orderDatePresetFilter,customDateContainer,startDateFilterEl,endDateFilterEl,'activeDatePreset',renderAllDashboard,d);renderInsightsPlatformFilters()}
-function initializeDateFilters(d,c,s,e,p,h,t){d.innerHTML=Object.entries(t).map(([k,v])=>`<option value="${k}">${v}</option>`).join('');if(p==='insightsDatePreset')d.value=insightsDatePreset;else if(p==='adPerformanceDatePreset')d.value=adPerformanceDatePreset;else if(p==='adsetDatePreset')d.value=adsetDatePreset;else if(p==='activeDatePreset')d.value=activeDatePreset;const dateChange=()=>{const v=d.value;if(p==='insightsDatePreset')insightsDatePreset=v;else if(p==='adPerformanceDatePreset')adPerformanceDatePreset=v;else if(p==='adsetDatePreset')adsetDatePreset=v;else if(p==='activeDatePreset')activeDatePreset=v;c.classList.toggle('hidden',v!=='custom');h()};d.addEventListener('change',dateChange);s.addEventListener('change',h);e.addEventListener('change',h)}
+function initializeAllFilters(){statusFilterEl.innerHTML=['All Statuses','New','Processing','Shipped','Cancelled'].map(s=>`<option value="${s==='All Statuses'?'All':s}">${s}</option>`).join('');statusFilterEl.value=activeStatusFilter;statusFilterEl.addEventListener('change',e=>{activeStatusFilter=e.target.value;renderAllDashboard()});const d={'today':'Today','yesterday':'Yesterday','last_7_days':'Last 7 Days','mtd':'Month to Date','last_month':'Last Month','custom':'Custom Range...'};
+initializeDateFilters(insightsDatePresetFilter,insightsCustomDateContainer,insightsStartDateFilterEl,insightsEndDateFilterEl,'insightsDatePreset',renderAllInsights,d);
+initializeDateFilters(adsetDatePresetFilter,adsetCustomDateContainer,adsetStartDateFilterEl,adsetEndDateFilterEl,'adsetDatePreset',()=>handleAdsetDateChange(false),d);
+initializeDateFilters(orderDatePresetFilter,customDateContainer,startDateFilterEl,endDateFilterEl,'activeDatePreset',renderAllDashboard,d);
+initializeDateFilters(profitDatePresetFilter, profitCustomDateContainer, profitStartDateFilterEl, profitEndDateFilterEl, 'profitDatePreset', handleProfitabilityChange, d);
+initializeDateFilters(rankingDatePresetFilter, null, null, null, 'adsetDatePreset', () => handleAdsetDateChange(true), d);
+initializeDateFilters(returnsDatePresetFilter, returnsCustomDateContainer, returnsStartDateFilterEl, returnsEndDateFilterEl, 'returnsDatePreset', renderReturnsAnalysis, d);
+renderInsightsPlatformFilters()}
+function initializeDateFilters(d,c,s,e,p,h,t){d.innerHTML=Object.entries(t).map(([k,v])=>`<option value="${k}">${v}</option>`).join('');
+if(p==='insightsDatePreset')d.value=insightsDatePreset;else if(p==='adPerformanceDatePreset')d.value=adPerformanceDatePreset;else if(p==='adsetDatePreset')d.value=adsetDatePreset;else if(p==='activeDatePreset')d.value=activeDatePreset;else if(p==='profitDatePreset')d.value=profitDatePreset;else if(p==='returnsDatePreset')d.value=returnsDatePreset;
+const dateChange=()=>{const v=d.value;if(p==='insightsDatePreset')insightsDatePreset=v;else if(p==='adPerformanceDatePreset')adPerformanceDatePreset=v;else if(p==='adsetDatePreset')adsetDatePreset=v;else if(p==='activeDatePreset')activeDatePreset=v;else if(p==='profitDatePreset')profitDatePreset=v;else if(p==='returnsDatePreset')returnsDatePreset=v;if(c) c.classList.toggle('hidden',v!=='custom');h()};d.addEventListener('change',dateChange);if(s) s.addEventListener('change',h);if(e) e.addEventListener('change',h)}
 async function handlePdfDownload(){const[s,e]=calculateDateRange(adsetDatePreset,adsetStartDateFilterEl.value,adsetEndDateFilterEl.value);if(!adsetPerformanceData||adsetPerformanceData.length===0){showNotification("No data available to download.",true);return}
 if(!s||!e){showNotification("Please select a valid date range.",true);return}
 const since=s.toISOString().split('T')[0];const until=e.toISOString().split('T')[0];showNotification("Generating PDF report...");try{const blob=await fetchApiData(`/download-dashboard-pdf?since=${since}&until=${until}`,"Failed to generate PDF",{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(adsetPerformanceData)});const url=window.URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`adset_report_${since}_to_${until}.pdf`;document.body.appendChild(a);a.click();a.remove();window.URL.revokeObjectURL(url);showNotification("PDF download started successfully!")}catch(err){}}
@@ -714,18 +1305,9 @@ async function handleExcelDownload() {
     const since = startDate.toISOString().split('T')[0];
     const until = endDate.toISOString().split('T')[0];
     showNotification("Generating detailed Excel report...");
-    
-    // const endpoint = `/download-excel-report?since=${since}&until=${until}`; // This was the old endpoint
-    // Using the adset endpoint from your HTML button ID
     const dateFilterType = adsetDateFilterTypeEl ? adsetDateFilterTypeEl.value : 'order_date';
-    const endpoint = `/get-adset-performance?since=${since}&until=${until}&date_filter_type=${dateFilterType}&format=excel`;
-
+    const excelEndpoint = `/download-excel-report?since=${since}&until=${until}&date_filter_type=${dateFilterType}`;
     try {
-        // We assume the adset endpoint (or a similar one) can return excel
-        // If your backend is different, you might need a different endpoint.
-        // For this example, let's assume '/download-excel-report' is correct
-        const excelEndpoint = `/download-excel-report?since=${since}&until=${until}&date_filter_type=${dateFilterType}`;
-
         const blob = await fetchApiData(excelEndpoint, "Failed to generate Excel report");
         const downloadUrl = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -735,29 +1317,19 @@ async function handleExcelDownload() {
         a.click();
         a.remove();
         window.URL.revokeObjectURL(downloadUrl);
-    } catch(e) { /* Handled by fetchApiData */ }
+    } catch(e) { }
 }
 
-document.getElementById('nav-reports')?.addEventListener('click', (e) => {
-  e.preventDefault();
-  ['orders-dashboard-view','order-insights-view','ad-performance-view','adset-breakdown-view','reports-view','settings-view']
-    .forEach(id => document.getElementById(id)?.classList.add('view-hidden'));
-  document.getElementById('reports-view')?.classList.remove('view-hidden');
-  document.querySelectorAll('.sidebar-link').forEach(el => el.classList.remove('active'));
-  document.getElementById('nav-reports')?.classList.add('active');
-});
+document.getElementById('nav-reports')?.addEventListener('click', (e) => { e.preventDefault(); navigate('reports-view'); });
 
 document.getElementById('btn-download-amazon-report')?.addEventListener('click', async () => {
     const startDate = document.getElementById('amazon-report-start-date').value;
     const endDate = document.getElementById('amazon-report-end-date').value;
-    
     if (!startDate || !endDate) {
         showNotification('Please select both start and end dates', true);
         return;
     }
-    
     showNotification('Generating Amazon report...');
-    
     try {
         const blob = await fetchApiData(`/download-amazon-sales-report?start_date=${startDate}&end_date=${endDate}`, 'Failed to generate Amazon report');
         const url = window.URL.createObjectURL(blob);
@@ -769,9 +1341,7 @@ document.getElementById('btn-download-amazon-report')?.addEventListener('click',
         a.remove();
         window.URL.revokeObjectURL(url);
         showNotification('Amazon report downloaded successfully!');
-    } catch (error) {
-        // Error already handled by fetchApiData
-    }
+    } catch (error) { }
 });
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -783,16 +1353,28 @@ document.addEventListener('DOMContentLoaded', () => {
     loginPasswordEl = document.getElementById('login-password');
     notificationEl = document.getElementById('notification');
     notificationMessageEl = document.getElementById('notification-message');
+    globalLoader = document.getElementById('global-loader'); 
+
     navOrdersDashboard = document.getElementById('nav-orders-dashboard');
     navOrderInsights = document.getElementById('nav-order-insights');
-    navAdPerformance = document.getElementById('nav-ad-performance');
+    navAdRanking = document.getElementById('nav-ad-ranking');
     navAdsetBreakdown = document.getElementById('nav-adset-breakdown');
+    navAdAnalysis = document.getElementById('nav-ad-analysis'); // New
     navSettings = document.getElementById('nav-settings');
+    navProfitability = document.getElementById('nav-profitability');
+    navCustomerSegments = document.getElementById('nav-customer-segments');
+    navReturnsAnalysis = document.getElementById('nav-returns-analysis');
+
     ordersDashboardView = document.getElementById('orders-dashboard-view');
     orderInsightsView = document.getElementById('order-insights-view');
-    adPerformanceView = document.getElementById('ad-performance-view');
+    adRankingView = document.getElementById('ad-ranking-view');
     adsetBreakdownView = document.getElementById('adset-breakdown-view');
+    adAnalysisView = document.getElementById('ad-analysis-view'); // New
     settingsView = document.getElementById('settings-view');
+    profitabilityView = document.getElementById('profitability-view');
+    customerSegmentsView = document.getElementById('customer-segments-view');
+    returnsAnalysisView = document.getElementById('returns-analysis-view');
+
     ordersListEl = document.getElementById('orders-list');
     statusFilterEl = document.getElementById('status-filter');
     orderDatePresetFilter = document.getElementById('order-date-preset-filter');
@@ -800,86 +1382,125 @@ document.addEventListener('DOMContentLoaded', () => {
     startDateFilterEl = document.getElementById('start-date-filter');
     endDateFilterEl = document.getElementById('end-date-filter');
     platformFiltersEl = document.getElementById('platform-filters');
+    
     dashboardKpiElements = { newOrders: document.getElementById('kpi-dashboard-new'), processing: document.getElementById('kpi-dashboard-processing'), shipped: document.getElementById('kpi-dashboard-shipped'), cancelled: document.getElementById('kpi-dashboard-cancelled') };
     insightsKpiElements = { revenue: { el: document.getElementById('kpi-insights-revenue') }, avgValue: { el: document.getElementById('kpi-insights-avg-value') }, allOrders: { el: document.getElementById('kpi-insights-all-orders') }, new: { el: document.getElementById('kpi-insights-new') }, shipped: { el: document.getElementById('kpi-insights-shipped') }, rto: { el: document.getElementById('kpi-insights-rto') }, cancelled: { el: document.getElementById('kpi-insights-cancelled') }};
+    
     revenueChartCanvas = document.getElementById('revenue-chart');
     platformChartCanvas = document.getElementById('platform-chart');
     paymentChartCanvas = document.getElementById('payment-chart');
+    
     insightsDatePresetFilter = document.getElementById('insights-date-preset-filter');
     insightsCustomDateContainer = document.getElementById('insights-custom-date-container');
     insightsStartDateFilterEl = document.getElementById('insights-start-date-filter');
     insightsEndDateFilterEl = document.getElementById('insights-end-date-filter');
     insightsPlatformFiltersEl = document.getElementById('insights-platform-filters');
-    orderModal = document.getElementById('order-modal');
-    modalBackdrop = document.getElementById('modal-backdrop');
-    modalContent = document.getElementById('modal-content');
-    modalCloseBtn = document.getElementById('modal-close-btn');
-    adDatePresetFilter = document.getElementById('ad-date-preset-filter');
-    adCustomDateContainer = document.getElementById('ad-custom-date-container');
-    adStartDateFilterEl = document.getElementById('ad-start-date-filter');
-    adEndDateFilterEl = document.getElementById('ad-end-date-filter');
-    performanceTableBody = document.getElementById('performance-table-body');
-    adKpiElements = { totalSpend: document.getElementById('kpi-total-spend'), totalRevenue: document.getElementById('kpi-total-revenue'), roas: document.getElementById('kpi-roas'), delivered: document.getElementById('kpi-delivered'), rto: document.getElementById('kpi-rto'), cancelled: document.getElementById('kpi-cancelled') };
     
-    spendRevenueChartCanvas = document.getElementById('spend-revenue-chart');
-    orderStatusChartCanvas = document.getElementById('order-status-chart');
+    adsetPerformanceTableBody = document.getElementById('adset-performance-table-body');
+    
     adsetDatePresetFilter = document.getElementById('adset-date-preset-filter');
     adsetCustomDateContainer = document.getElementById('adset-custom-date-container');
     adsetStartDateFilterEl = document.getElementById('adset-start-date-filter');
     adsetEndDateFilterEl = document.getElementById('adset-end-date-filter');
-    adsetPerformanceTableBody = document.getElementById('adset-performance-table-body');
     
-    // Updated to use the new IDs from your latest HTML
+    profitDatePresetFilter = document.getElementById('profit-date-preset-filter');
+    profitCustomDateContainer = document.getElementById('profit-custom-date-container');
+    profitStartDateFilterEl = document.getElementById('profit-start-date-filter');
+    profitEndDateFilterEl = document.getElementById('profit-end-date-filter');
+    profitTrendChartCanvas = document.getElementById('profit-trend-chart');
+
+    rankingDatePresetFilter = document.getElementById('ranking-date-preset-filter');
+    adRankingChartCanvas = document.getElementById('ad-ranking-chart');
+    adRankingListEl = document.getElementById('ad-ranking-list');
+
+    customerSegmentChartCanvas = document.getElementById('customer-segment-chart');
+    vipCustomerListEl = document.getElementById('vip-customer-list');
+    customerLimitFilter = document.getElementById('customer-limit-filter'); // New
+
+    rtoProductChartCanvas = document.getElementById('rto-product-chart');
+    rtoCityListEl = document.getElementById('rto-city-list');
+    returnsDatePresetFilter = document.getElementById('returns-date-preset-filter'); // New
+    returnsCustomDateContainer = document.getElementById('returns-custom-date-container'); // New
+    returnsStartDateFilterEl = document.getElementById('returns-start-date-filter'); // New
+    returnsEndDateFilterEl = document.getElementById('returns-end-date-filter'); // New
+    
+    adAnalysisTableBody = document.getElementById('ad-analysis-table-body'); // New
+    adAnalysisPaymentFilter = document.getElementById('ad-analysis-payment-filter'); // New
+
     downloadPdfBtn = document.getElementById('download-adset-pdf');
     downloadExcelBtn = document.getElementById('download-adset-excel');
-    
     adsetDateFilterTypeEl = document.getElementById('adset-date-filter-type');
 
     loginBtn?.addEventListener('click', handleLogin);
     loginEmailEl?.addEventListener('keypress', e => { if (e.key === 'Enter') handleLogin(); });
     loginPasswordEl?.addEventListener('keypress', e => { if (e.key === 'Enter') handleLogin(); });
     logoutBtn?.addEventListener('click', logout);
+    
     navOrdersDashboard?.addEventListener('click', (e) => { e.preventDefault(); navigate('orders-dashboard'); });
     navOrderInsights?.addEventListener('click', (e) => { e.preventDefault(); navigate('order-insights'); });
-    navAdPerformance?.addEventListener('click', (e) => { e.preventDefault(); navigate('ad-performance'); });
+    navAdRanking?.addEventListener('click', (e) => { e.preventDefault(); navigate('ad-ranking'); });
     navAdsetBreakdown?.addEventListener('click', (e) => { e.preventDefault(); navigate('adset-breakdown'); });
+    navAdAnalysis?.addEventListener('click', (e) => { e.preventDefault(); navigate('ad-analysis'); });
     navSettings?.addEventListener('click', (e) => { e.preventDefault(); navigate('settings'); });
-    modalCloseBtn?.addEventListener('click', closeOrderModal);
-    modalBackdrop?.addEventListener('click', closeOrderModal);
+    navProfitability?.addEventListener('click', (e) => { e.preventDefault(); navigate('profitability'); });
+    navCustomerSegments?.addEventListener('click', (e) => { e.preventDefault(); navigate('customer-segments'); });
+    navReturnsAnalysis?.addEventListener('click', (e) => { e.preventDefault(); navigate('returns-analysis'); });
     
-    // Listeners for the download buttons
     downloadPdfBtn?.addEventListener('click', handlePdfDownload);
     downloadExcelBtn?.addEventListener('click', handleExcelDownload);
+    adsetDateFilterTypeEl?.addEventListener('change', () => handleAdsetDateChange(currentView === 'ad-ranking'));
     
-    adsetDateFilterTypeEl?.addEventListener('change', handleAdsetDateChange);
+    adAnalysisPaymentFilter?.addEventListener('change', renderAdAnalysis);
+    customerLimitFilter?.addEventListener('change', () => renderCustomerSegments(currentSortKey || 'spent', currentSortOrder || 'desc'));
 
-    // === NEW: Add sort listeners on load ===
     document.querySelectorAll("#adsetPerformanceTable th.sortable").forEach(th => {
-        // Store original text
         th.dataset.originalText = th.textContent.replace(/[▲▼⬍]/g, "").trim();
-        
         th.onclick = () => {
             const key = th.dataset.key;
             if (!key) return;
-
             if (currentSortKey === key) {
                 currentSortOrder = currentSortOrder === "asc" ? "desc" : "asc";
             } else {
                 currentSortKey = key;
                 currentSortOrder = "asc";
             }
-
-            // Visually update header arrows
             document.querySelectorAll("#adsetPerformanceTable th.sortable").forEach(h => {
                 h.textContent = `${h.dataset.originalText} ⬍`;
             });
             th.textContent = `${th.dataset.originalText} ${currentSortOrder === "asc" ? "▲" : "▼"}`;
-
-            // Re-render the table with the new sort
             renderAdsetPerformanceDashboard();
         };
     });
-    // ======================================
+
+    // Sidebar Accordion Logic
+    document.querySelectorAll('.nav-section-header').forEach(header => {
+        header.addEventListener('click', () => {
+            const targetId = header.dataset.target;
+            const targetContent = document.getElementById(targetId);
+            const arrow = header.querySelector('.arrow-icon');
+            
+            // If already expanded, toggle off
+            if (targetContent.classList.contains('expanded')) {
+                targetContent.classList.remove('expanded');
+                targetContent.classList.add('collapsed');
+                arrow.classList.remove('rotate-180');
+            } else {
+                // Collapse all others
+                document.querySelectorAll('.nav-content').forEach(content => {
+                    content.classList.remove('expanded');
+                    content.classList.add('collapsed');
+                });
+                document.querySelectorAll('.arrow-icon').forEach(icon => {
+                    icon.classList.remove('rotate-180');
+                });
+                
+                // Expand clicked
+                targetContent.classList.remove('collapsed');
+                targetContent.classList.add('expanded');
+                arrow.classList.add('rotate-180');
+            }
+        });
+    });
 
     const savedToken = localStorage.getItem('authToken');
     if (savedToken) {

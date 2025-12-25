@@ -13,9 +13,13 @@ amazon_cache.json
 amazon_items_cache.json
 master_order_data.json
 rapidshyp_cache.json
+test_approve_flow.py
+awb_assignment_cache.json
+master_api_log.json
+order_shipment_cache.json
 
 *.xlsx # Don't upload generated reports
 *.pdf # Don't upload generated reports
 echo "output/docpharma_responses.json" >> .gitignore
 echo "output/docpharma_responses.xlsx" >> .gitignore
-echo "test_docpharma.py" >> .gitignore  
+echo "test_docpharma.py" >> .gitignore
