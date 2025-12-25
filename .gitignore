@@ -17,6 +17,8 @@ test_approve_flow.py
 awb_assignment_cache.json
 master_api_log.json
 order_shipment_cache.json
+firebase-key.json
+migrate_to_firebase.py
 
 *.xlsx # Don't upload generated reports
 *.pdf # Don't upload generated reports
